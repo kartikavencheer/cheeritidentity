@@ -118,7 +118,9 @@ Done and tested end to end on this PC for PredictIt, TurfIT (player and owner), 
 - ScoreIT's branch starts from `scoreit/badminton`, not its main branch.
 - **Score security bug:** `/api/auth/otp-verify` never checks the OTP, so any code logs in as any phone. Score therefore sends `phoneVerified: false`.
 - Every repo commits its `.env` (secrets in git history). Not changed.
-- Not done: Sponsor (old copy here), CheerIT-COM (other developer). Then step C, SSO.
+- **Sponsor done too.** The OTP code lives on Sponsor's `stackchnage` branch (this PC had `version2` checked out, which is why it first looked old). Its `cheerit-identity` branch starts from `stackchnage`. The new column is `sql/sponsor_portal/024_identity_link.sql`, because Sponsor uses numbered SQL files, not Prisma migrations. Local `sponsor_db` got 022, 023 and the identity column; backup is in `backups/`. Of its 2 local accounts, 1 is linked through its contact mobile and 1 has no phone at all. Only OTP login links; email+password login does not.
+- Sponsor's `prisma/schema.prisma` lacks `mobile_number` and `identity_id`. It is only used for seeding, but a `prisma db push` there would drop both.
+- Not done: CheerIT-COM (other developer). Then step C, SSO.
 
 ## Next steps
 
