@@ -1,6 +1,6 @@
 # CheerIT identity: full conversation record
 
-Date of session: 2026-10-28. This is a turn-by-turn record of the whole discussion, condensed but complete in
+Sessions: 2026-10-28 on the Mac, then 2026-10-28 on the Windows PC (from section 18). This is a turn-by-turn record, condensed but complete in
 substance, so it can be read on another device. For the short version, see `HANDOFF.md`.
 
 ---
@@ -275,10 +275,124 @@ cheerit-identity folder.
 
 ---
 
+## Where things stood at the end of the Mac session
+
+- Stage 1 was complete locally. Stage 2 was waiting for approval, and its writer was not built yet.
+
+---
+
+# Session 2: Windows PC, 2026-10-28
+
+## 18. "Continue" on the Windows PC
+
+**Found:** the code came over through git, but not the databases. This PC runs Postgres 18 on port 5432 (not 5433). App
+repos are in `D:\Downloads`. TurfIT's `.env` points at a remote Aiven cloud database, so it was left alone. Reading DB
+passwords out of `.env` files was blocked by the permission system.
+
+**Built without a database:** `src/link.ts` and `src/link-plan.ts` (the stage 2 writer, plan by default, `--apply` to
+write, refuses an app if any row holds a different identity, one transaction per app) plus 6 tests. Also changed the per-app
+SQL from partial unique indexes to plain ones with Prisma's default names, because Prisma cannot express partial indexes
+and `db push` would drop them.
+
+## 19. "The DB URL was postgresql://postgres:root@127.0.0.1:5432/cheeritidentity"
+
+Used those credentials. Local databases: `post` (Score), `gameit` (GameIT), `predictit`, `turfitweb`, `sponsor_db`.
+- Dry run: 14 records, 11 people, 1 person in all four apps, 1 name conflict, 0 rejected. Sponsor left out (the copy
+  looked old).
+- Created `cheeritidentity`, wrote 11 people and 14 memberships. All six checks passed; a second run added nothing.
+- Stage 2 plan: link 1 Score, 3 GameIT, 9 PredictIt, 1 TurfIT row, no conflicts.
+
+## 20. "Yes do" (stage 2)
+
+- Backed up the four app databases into `backups/` (git-ignored).
+- Added the `identityId` field to `schema.prisma` in ScoreIT, PredictIt and TurfIT. `prisma validate` passed, and
+  `prisma migrate diff` showed no difference for the identity column.
+- `link.ts --apply`: all four linked and verified; a second run changed nothing.
+- Found unrelated drift: local `post` has `si_reward*` tables ScoreIT's schema no longer has; local `turfitweb` is behind
+  TurfIT's schema.
+
+## 21. "After committing, what will work?"
+
+**Answer:** nothing visible to users yet. The common list of people and the links exist, but no app reads them. What makes
+it useful: A) an identity service, B) apps calling it at login so new users are added automatically, C) SSO.
+
+## 22. "Step A" (identity service)
+
+Built `src/server.ts` and `src/service/`: an Express 5 API on port 4100, localhost only.
+- `POST /v1/users/resolve` (find or create the person for a phone and link the calling app's user),
+  `GET /v1/users/:id`, `GET /v1/users?phone=`, `GET /health`.
+- One API key per app, stored as SHA-256 only; reissuing revokes the old one (`src/issue-key.ts`).
+- Rules: fill blanks only; an app user already linked to another phone gets `409`, never moved; each app sees only its
+  own user ids.
+- 29 tests, six of them over HTTP against `cheeritidentity_test`.
+
+## 23. The PowerShell error
+
+Your terminal is PowerShell, and `VAR=value command` is bash syntax. Fixed by making `npm start` and `npm run issue-key`
+read `.env` themselves. You then ran the service and issued the PredictIt key yourself.
+
+## 24. Step B for PredictIt
+
+Added `identityClient.ts`, one call after OTP login (not awaited, never blocks login), a migration, and `.env.example`
+entries. Tested end to end with the backend running: login linked the user; with the service down, login still worked.
+
+**Mistake:** the "new" test number `+919000000001` was the existing seed user Amit. The cleanup deleted Amit, plus 1 cheer
+and 1 prediction through cascading deletes. Restored all three from the backup (verified identical) and relinked.
+
+**Found:** PredictIt's `backend/.env` is committed to GitHub with its secrets.
+
+## 25. "How to check all integration is working?"
+
+Explained which apps still needed code and how to check: start the service, start an app, log in, query `user_apps`, run
+`npm run link:verify`.
+
+**Correction:** I had said new signups in non-integrated apps would show as "unlinked". They would not have appeared at all,
+so `link.ts` now reports them as `NOT IN IDENTITY`.
+
+## 26. "Do you have access to Sponsor, TurfIT, PredictIt, GameIT?"
+
+Surveyed the repos on this PC. `pickleball` turned out to be the GameIT booking platform. Sponsor looked old because
+`version2` was checked out.
+
+## 27. "Yes, and also push them"
+
+Integrated TurfIT, Score and GameIT the same way. Each was backed up, keyed (the key written straight into its `.env`,
+never printed), tested with a backend running against the local database, and cleaned up by id.
+- **TurfIT:** a player and an owner with the same phone became one person with two roles. The "New User" placeholder name
+  is not sent.
+- **Score:** linked on OTP login and on the booking-app handoff. **Found that Score's login never checks the OTP**: `0000`
+  logged in. Score therefore marks phones as not verified.
+- **GameIT:** worked. **Mistake:** one real OTP SMS was sent to 9898989898, because the demo login is switched off in this
+  PC's `.env`.
+
+Pushed every app on a new `cheerit-identity` branch (only the identity files; no `.env`, no `TurfIT.zip`), and the identity
+repo to its own `main`. You had removed `.env` from `.gitignore` in this repo; I left that for you to decide.
+
+## 28. "What did you change in the other projects?"
+
+Listed every file per repo (see `HANDOFF.md`, "What each app got"), the local-only changes (`.env` lines, generated Prisma
+clients, the database columns), and what was not touched (frontends, CheerIT-COM, the Aiven database).
+
+## 29. "Why not CheerIT-Sponsor?"
+
+The OTP code is on Sponsor's `stackchnage` branch. Switched to it, backed up `sponsor_db`, applied migrations `022` and
+`023`, and integrated Sponsor through a new `sql/sponsor_portal/024_identity_link.sql`. Sponsor uses numbered SQL files,
+not Prisma.
+- Of 2 local accounts, 1 linked through its contact mobile (it matched an existing PredictIt person); 1 has no phone.
+- Tested OTP login with the SMS gateway pointed at a dead address, so **no SMS was sent**. Afterwards the account was put
+  back exactly as before.
+- Pushed on `cheerit-identity`, starting from `stackchnage`.
+
+## 30. "Add all this to HANDOFF.md and CONVERSATION.md"
+
+Rewrote `HANDOFF.md` as one current-state document and added this session here.
+
+---
+
 ## Where things stand
 
-- Stage 1 is complete locally. Stage 2 (add `identity_id` to the five app databases and write the links back) is **waiting for
-  your approval**, and its writer is not built yet.
-- Not started: running against the real dev servers, CheerIT-COM data, the production migration, and the SSO build.
-- Open items: confirm the Score vs booking domain mapping, confirm `AUTH_SECRET` is set in Sponsor production, confirm the
-  Identity domain names, and get the CheerIT-COM schema and export from its developer.
+- Done locally on the Windows PC: identity DB, links in all five apps, the identity service, and all five app backends
+  calling it. Everything tested end to end and pushed. The app branches are **not merged**.
+- Not started: dev and production servers, CheerIT-COM, SSO.
+- Urgent: Score's OTP check, Sponsor's `AUTH_SECRET`, and `.env` files committed in the app repos.
+- Full list of open items and next steps: `HANDOFF.md`.
