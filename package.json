@@ -1,0 +1,22 @@
+{
+  "name": "cheerit-identity",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Common users database for the CheerIT ecosystem: schema, phone normalizer and read-only dry-run.",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "dry-run": "node src/dry-run.ts",
+    "dry-run:demo": "node src/dry-run.ts --fixtures fixtures/demo"
+  },
+  "dependencies": {
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.0"
+  }
+}

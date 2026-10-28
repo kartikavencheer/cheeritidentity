@@ -1,0 +1,4 @@
+[
+  {"id": "5b1a0000-0000-4000-8000-000000000001", "email": "chirag@brand.example", "auth_mobile": "9000000002", "is_active": true, "last_login_at": "2026-04-01T08:00:00Z", "created_at": "2025-10-01T08:00:00Z", "updated_at": "2026-04-01T08:00:00Z", "contact_name": "Chirag Shah", "contact_mobile": "9000000002", "display_brand_name": "Shah Sports", "legal_company_name": "Shah Sports Pvt Ltd"},
+  {"id": "5b1a0000-0000-4000-8000-000000000002", "email": "9000000003@mobile.sponsor", "auth_mobile": null, "is_active": true, "last_login_at": null, "created_at": "2025-11-01T08:00:00Z", "updated_at": "2025-11-01T08:00:00Z", "contact_name": "Farah Khan", "contact_mobile": "09000000003", "display_brand_name": "Khan Foods", "legal_company_name": "Khan Foods LLP"}
+]

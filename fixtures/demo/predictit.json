@@ -1,0 +1,6 @@
+[
+  {"id": "0b0f0c1e-0000-4000-8000-000000000001", "name": "Aarav Mehta", "phone": "+919000000001", "email": "aarav@example.com", "city": "Pune", "gender": null, "avatar_url": null, "created_at": "2025-07-01T08:00:00Z", "updated_at": "2026-09-01T08:00:00Z", "last_login_at": "2026-09-01T08:00:00Z"},
+  {"id": "0b0f0c1e-0000-4000-8000-000000000005", "name": "Esha Nair", "phone": "9000000005", "email": null, "city": "Kochi", "gender": "female", "avatar_url": null, "created_at": "2025-08-01T08:00:00Z", "updated_at": "2026-08-01T08:00:00Z", "last_login_at": "2026-08-01T08:00:00Z"},
+  {"id": "0b0f0c1e-0000-4000-8000-000000000006", "name": "Esha N", "phone": "9000000005", "email": null, "city": null, "gender": null, "avatar_url": null, "created_at": "2025-09-01T08:00:00Z", "updated_at": "2025-09-01T08:00:00Z", "last_login_at": null},
+  {"id": "0b0f0c1e-0000-4000-8000-000000000007", "name": "Test", "phone": "abc", "email": null, "city": null, "gender": null, "avatar_url": null, "created_at": "2025-09-03T08:00:00Z", "updated_at": "2025-09-03T08:00:00Z", "last_login_at": null}
+]

@@ -1,0 +1,4 @@
+[
+  {"id": "ckbook001", "name": "Aarav M", "phone": "09000000001", "gender": "male", "email": "aarav@example.com", "avatar_url": "https://example.com/a.png", "created_at": "2025-06-01T08:00:00Z", "updated_at": "2026-10-20T08:00:00Z", "last_login_at": "2026-10-20T08:00:00Z"},
+  {"id": "ckbook002", "name": "Bad Number", "phone": "12345", "gender": null, "email": null, "avatar_url": null, "created_at": "2025-06-05T08:00:00Z", "updated_at": "2025-06-05T08:00:00Z", "last_login_at": null}
+]
