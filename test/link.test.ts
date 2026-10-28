@@ -20,6 +20,7 @@ test("empty rows are linked, rows already holding the same identity are left alo
   );
   assert.deepEqual(plan.toLink, [{ appUserId: "a", identityId: "id-1" }]);
   assert.equal(plan.alreadyLinked, 1);
+  assert.deepEqual(plan.notInIdentity, ["c"], "a row the identity database never saw is reported");
   assert.deepEqual(blockers(plan), []);
 });
 

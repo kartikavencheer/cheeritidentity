@@ -107,6 +107,13 @@ All five backends' `.env` files point at a **local Postgres on `localhost:5433`*
 - The booking platform repo is not here (`pickleball` may be related, unchecked).
 - The per-app SQL now uses plain unique indexes with Prisma's default names, instead of partial indexes Prisma cannot express.
 
+## Step A: identity service (built 2026-10-28)
+
+- `src/server.ts` (Express 5, port 4100, localhost only by default), `src/service/` (routes, store, API keys), `src/issue-key.ts`, `sql/002_app_clients.sql`. API and the call for app backends are in `README.md`.
+- 29 tests pass. Six of them run the service over HTTP against the throwaway database `cheeritidentity_test`.
+- Started once against the real local `cheeritidentity`: health check OK, and calls without a key are refused. No API keys have been issued yet.
+- Next is step B: each app backend calls `POST /v1/users/resolve` after OTP and stores the returned id. Then step C, SSO.
+
 ## Next steps
 
 1. **Stage 2 (writer built, waiting for approval to run):** `src/link.ts` adds the identity column to each app (using `sql/apps/*.sql`), fills it from `cheerit_identity`, and verifies every link. It shows the plan unless `--apply` is passed, refuses non-local hosts without `--allow-remote`, never overwrites a row holding a different identity (it refuses that app instead), and writes each app in its own transaction. Connection strings: `IDENTITY_URL` plus `LINK_SCORE_URL`, `LINK_BOOKING_URL`, `LINK_PREDICTIT_URL`, `LINK_TURFIT_URL`, `LINK_SPONSOR_URL`. Score admins are skipped (no column on `si_admin`). Add the Prisma field first, see `sql/apps/README.md`. The planning logic is unit tested, but the CLI has **not yet run against a real database**.

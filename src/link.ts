@@ -81,6 +81,9 @@ function printPlan(t: LinkTarget, plan: LinkPlan, hasColumn: boolean): void {
   for (const m of plan.mismatched) console.log(`  MISMATCH row ${m.appUserId}: holds ${m.current}, expected ${m.expected}`);
   for (const r of plan.unknownLinks) console.log(`  UNKNOWN row ${r.appUserId}: holds ${r.identityId}, not listed in the identity database`);
   if (plan.missingInApp.length) console.log(`  missing rows: ${plan.missingInApp.join(", ")}`);
+  if (plan.notInIdentity.length) {
+    console.log(`  NOT IN IDENTITY: ${plan.notInIdentity.length} app users the identity database has never seen (new signups not sent to the service, or rejected phones). Run apply.ts to add them.`);
+  }
 }
 
 let failed = false;

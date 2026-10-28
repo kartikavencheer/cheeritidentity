@@ -51,6 +51,48 @@ database it is reading (never the password) before it starts.
 - TurfIT: a PLAYER and an OWNER row with one phone become one person with two memberships.
 - CheerIT-COM is not included yet. Its backend is separate.
 
+## Identity service
+
+A small HTTP API over the identity database. Only app backends call it, never browsers or mobile apps.
+
+Put the connection string in a `.env` file in this folder (git-ignored), then from any shell:
+
+```
+# .env
+IDENTITY_URL=postgresql://postgres:<password>@127.0.0.1:5432/cheeritidentity
+
+npm start                        # http://127.0.0.1:4100
+npm run issue-key -- score       # one key per app; reissuing revokes the old one
+```
+
+`HOST` defaults to `127.0.0.1`, so only backends on the same server can reach it. Every `/v1` call needs
+`Authorization: Bearer <IDENTITY_API_KEY>`. The key decides which app is calling.
+
+| Call | Use |
+|---|---|
+| `POST /v1/users/resolve` | After a successful OTP (signup or login). Body: `phone`, `appUserId` (required), `role`, `name`, `email`, `avatarUrl`, `gender`, `city`. Finds or creates the person and links your app row. Returns `201` for a new person, `200` otherwise, with `user.id` to store in your `identity_id` column |
+| `GET /v1/users/:id` | A person and the apps they use |
+| `GET /v1/users?phone=...` | Look a person up by phone |
+| `GET /health` | No key needed |
+
+Rules: profile fields only fill blanks, never overwrite. A user with `status: "blocked"` must be refused
+by the app. `409 app_user_linked_elsewhere` means that app row is already linked to a different phone
+(the user changed number); the login itself should carry on, and the link is fixed by hand. Each app sees
+`appUserId` only for its own row.
+
+```js
+// In an app backend, right after OTP verification succeeds. Never block login if this call fails.
+const res = await fetch(`${process.env.IDENTITY_SERVICE_URL}/v1/users/resolve`, {
+  method: "POST",
+  headers: { "content-type": "application/json", authorization: `Bearer ${process.env.IDENTITY_API_KEY}` },
+  body: JSON.stringify({ phone: user.phone, appUserId: user.id, name: user.name }),
+});
+if (res.ok) await saveIdentityId(user.id, (await res.json()).user.id);
+```
+
+Tests for the service need a throwaway database: `TEST_IDENTITY_URL=postgresql://.../cheeritidentity_test npm test`.
+They empty every table in it.
+
 ## Not built yet
 
-The real run that writes `cheerit_identity` and fills `identity_id` in each app, the identity API, and SSO.
+Calling the service from each app (step B), and SSO (step C).

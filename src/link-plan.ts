@@ -57,12 +57,14 @@ export interface LinkPlan {
   skipped: string[];
   /** App rows with an identity that the identity database does not list for that row. */
   unknownLinks: AppRow[];
+  /** App rows the identity database has never seen, such as signups in an app not yet calling the service. */
+  notInIdentity: string[];
 }
 
 export function planLinks(target: LinkTarget, memberships: Membership[], rows: AppRow[]): LinkPlan {
   const byId = new Map(rows.map((r) => [r.appUserId, r]));
   const planned = new Set<string>();
-  const plan: LinkPlan = { toLink: [], alreadyLinked: 0, mismatched: [], missingInApp: [], skipped: [], unknownLinks: [] };
+  const plan: LinkPlan = { toLink: [], alreadyLinked: 0, mismatched: [], missingInApp: [], skipped: [], unknownLinks: [], notInIdentity: [] };
 
   const sorted = [...memberships].sort((a, b) => a.appUserId.localeCompare(b.appUserId));
   for (const m of sorted) {
@@ -79,7 +81,9 @@ export function planLinks(target: LinkTarget, memberships: Membership[], rows: A
   }
 
   for (const row of rows) {
-    if (row.identityId !== null && !planned.has(row.appUserId)) plan.unknownLinks.push(row);
+    if (planned.has(row.appUserId)) continue;
+    if (row.identityId !== null) plan.unknownLinks.push(row);
+    else plan.notInIdentity.push(row.appUserId);
   }
   return plan;
 }
