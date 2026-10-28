@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "description": "Common users database for the CheerIT ecosystem: schema, phone normalizer and read-only dry-run.",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "dry-run": "node src/dry-run.ts",
-    "dry-run:demo": "node src/dry-run.ts --fixtures fixtures/demo"
+    "dry-run:demo": "node src/dry-run.ts --fixtures fixtures/demo",
+    "link": "node src/link.ts",
+    "link:verify": "node src/link.ts --verify-only"
   },
   "dependencies": {
     "pg": "^8.13.3"

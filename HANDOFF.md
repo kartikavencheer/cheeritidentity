@@ -95,9 +95,21 @@ All five backends' `.env` files point at a **local Postgres on `localhost:5433`*
 - Other local databases I did not read: `cheerit`, `scoreit`, `sponsorit`, `sponsor_db`, `turfit_dev`, `turfit_preview`. They may be older copies, or one may be a real dev copy.
 - If you continue on another device, the local `cheerit_identity` database does not travel with the code. Recreate it by running `apply.ts --apply` against that device's databases, or restore a dump.
 
+## Windows machine (2026-10-28)
+
+- Postgres 18 runs on `localhost:5432`, user `postgres` (tools in `C:\Program Files\PostgreSQL\18\bin`, not on PATH). Databases: `post` (Score), `gameit` (booking), `predictit`, `turfitweb` (TurfIT, local), `sponsor_db`, and `cheeritidentity` (identity; on this PC the name has no underscore).
+- Stage 1 done here: dry run 14 records, 11 people, 1 person in all four apps, 1 name conflict, 0 rejected. Wrote 11 people and 14 memberships, all six checks pass, and a second run created nothing. Sponsor was left out (old schema, see below).
+- **Stage 2 done here** (Sponsor excluded): backups in `backups/` (git-ignored, `pg_dump -Fc`), then the identity column was added and filled in `post` (1 row), `gameit` (3), `predictit` (9) and `turfitweb` (1). Verification passes for all four, and a second run linked nothing new. Restore any app with `pg_restore --clean -d <db> backups/<db>-<time>.dump`.
+- The field was added to `schema.prisma` in `ScoreIT/backend`, `PredictIT-Extract/backend` and `turfit/Backend` (not committed). `prisma validate` passes, and `prisma migrate diff` shows no difference for the identity column. The booking repo is not on this PC, so add `identityId String? @unique @map("identity_id") @db.Uuid` to its user model before its next `db push`.
+- Unrelated drift found: the local `post` DB has `si_reward*` tables that ScoreIT's schema no longer has, and local `turfitweb` is behind TurfIT's schema. A `prisma db push` would drop or change those, regardless of this work.
+- App repos are in `D:\Downloads`, and their `.env` files point to a mix of places: Sponsor `sponsor_db`, PredictIt `predictit`, Score something on local 5432, and **TurfIT at a remote Aiven cloud database**. Do not read or write the TurfIT one without explicit approval.
+- `CheerIT-Sponsor-main` here is an **older copy**: no OTP/mobile migration and no `mobile_number` on `sp_sponsor_auth_users`. The Sponsor source query will fail against `sponsor_db` until it is updated.
+- The booking platform repo is not here (`pickleball` may be related, unchecked).
+- The per-app SQL now uses plain unique indexes with Prisma's default names, instead of partial indexes Prisma cannot express.
+
 ## Next steps
 
-1. **Stage 2 (waiting for approval):** add the `identity_id` column to the five app databases using `sql/apps/*.sql`, write the identity id back into each app's user rows, and verify every link. Add the same field to each app's `schema.prisma` at the same time, because `prisma db push` drops columns that are not in the schema. The writer for this step is **not built yet**.
+1. **Stage 2 (writer built, waiting for approval to run):** `src/link.ts` adds the identity column to each app (using `sql/apps/*.sql`), fills it from `cheerit_identity`, and verifies every link. It shows the plan unless `--apply` is passed, refuses non-local hosts without `--allow-remote`, never overwrites a row holding a different identity (it refuses that app instead), and writes each app in its own transaction. Connection strings: `IDENTITY_URL` plus `LINK_SCORE_URL`, `LINK_BOOKING_URL`, `LINK_PREDICTIT_URL`, `LINK_TURFIT_URL`, `LINK_SPONSOR_URL`. Score admins are skipped (no column on `si_admin`). Add the Prisma field first, see `sql/apps/README.md`. The planning logic is unit tested, but the CLI has **not yet run against a real database**.
 2. Run the same dry run and write against the **real dev servers** (devturfit, devgameit, devscoreit, devpredictit, devsponsorit). This needs read-only credentials or database dumps. Those servers were not reachable from the session.
 3. **CheerIT-COM:** ask its developer for the users table name and columns and a read-only export or API.
 4. Review the real dry-run report together: rejected phones, conflicts, overlaps.
