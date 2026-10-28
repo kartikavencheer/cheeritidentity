@@ -112,7 +112,13 @@ All five backends' `.env` files point at a **local Postgres on `localhost:5433`*
 - `src/server.ts` (Express 5, port 4100, localhost only by default), `src/service/` (routes, store, API keys), `src/issue-key.ts`, `sql/002_app_clients.sql`. API and the call for app backends are in `README.md`.
 - 29 tests pass. Six of them run the service over HTTP against the throwaway database `cheeritidentity_test`.
 - Started once against the real local `cheeritidentity`: health check OK, and calls without a key are refused. No API keys have been issued yet.
-- Next is step B: each app backend calls `POST /v1/users/resolve` after OTP and stores the returned id. Then step C, SSO.
+## Step B: apps call the service (2026-10-28)
+
+Done and tested end to end on this PC for PredictIt, TurfIT (player and owner), Score (OTP login and booking handoff) and GameIT (`pickleball` repo). Each one is on a `cheerit-identity` branch on GitHub, not merged. Each app has an identity client file, one call after login (never awaited, never blocks login), a migration (`IF NOT EXISTS`, safe where link.ts already added the column), and the Prisma field. It is off unless `IDENTITY_SERVICE_URL` and `IDENTITY_API_KEY` are set in that backend's `.env`. Keys were issued for predictit, turfit, score and booking and written into the local `.env` files only.
+- ScoreIT's branch starts from `scoreit/badminton`, not its main branch.
+- **Score security bug:** `/api/auth/otp-verify` never checks the OTP, so any code logs in as any phone. Score therefore sends `phoneVerified: false`.
+- Every repo commits its `.env` (secrets in git history). Not changed.
+- Not done: Sponsor (old copy here), CheerIT-COM (other developer). Then step C, SSO.
 
 ## Next steps
 
