@@ -210,4 +210,31 @@ const sponsor: Source = {
   },
 };
 
-export const SOURCES: Source[] = [score, scoreAdmin, booking, predictit, turfit, sponsor];
+// CheerIT web API (cheerit.com and the CheerIT app): "User". Access-code and PIN logins create users with no phone
+// number; those come out as rejected phones and stay out of the shared database. Last activity is the newest session use.
+const com: Source = {
+  name: "com",
+  appKey: "com",
+  envVar: "SRC_COM_URL",
+  sql: `SELECT u.user_id AS id, u.full_name AS name, u.mobile_number AS phone, u.email_address AS email,
+               u.city_name AS city, u.gender::text AS gender, u.profile_image_url AS avatar_url, u.is_active,
+               u.created_at, u.updated_at,
+               (SELECT MAX(t."lastUsedAt") FROM "Authtoken" t WHERE t.user_id = u.user_id) AS last_login_at
+        FROM "User" u`,
+  map(row) {
+    const rec = base("com", "com", row, row.id);
+    return {
+      ...rec,
+      phoneRaw: str(row.phone),
+      name: str(row.name),
+      email: cleanEmail(row.email, rec.notes),
+      avatarUrl: str(row.avatar_url),
+      gender: str(row.gender),
+      city: str(row.city),
+      isActive: row.is_active == null ? null : Boolean(row.is_active),
+      lastActiveAt: toDate(row.last_login_at),
+    };
+  },
+};
+
+export const SOURCES: Source[] = [score, scoreAdmin, booking, predictit, turfit, sponsor, com];

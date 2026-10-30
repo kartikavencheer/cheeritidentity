@@ -31,6 +31,7 @@ export const LINK_TARGETS: LinkTarget[] = [
   { appKey: "predictit", envVar: "LINK_PREDICTIT_URL", table: "users", idColumn: "id", identityColumn: "identity_id", migration: "predictit.sql" },
   { appKey: "turfit", envVar: "LINK_TURFIT_URL", table: `"User"`, idColumn: "id", identityColumn: `"identityId"`, migration: "turfit.sql" },
   { appKey: "sponsor", envVar: "LINK_SPONSOR_URL", table: "sp_sponsor_auth_users", idColumn: "id", identityColumn: "identity_id", migration: "sponsor.sql" },
+  { appKey: "com", envVar: "LINK_COM_URL", table: `"User"`, idColumn: "user_id", identityColumn: "identity_id", migration: "com.sql" },
 ];
 
 export interface Membership {

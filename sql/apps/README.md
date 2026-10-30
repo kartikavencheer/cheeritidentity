@@ -20,5 +20,6 @@ defaults, so Prisma sees them as already in place.
 | PredictIt | `User` (`users`) | `identityId String? @unique @map("identity_id") @db.Uuid` |
 | Sponsor | `SponsorAuthUser` (`sp_sponsor_auth_users`) | `identityId String? @unique @map("identity_id") @db.Uuid` |
 | TurfIT | `User` | `identityId String? @db.Uuid` and `@@unique([identityId, role])` |
+| CheerIT web API | `User` | `identity_id String? @unique @db.Uuid` |
 
 The booking platform's schema was not on the Windows machine, so check its model name there.

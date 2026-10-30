@@ -156,3 +156,27 @@ test("the read-only guard refuses writes", () => {
     "ALTER TABLE users ADD COLUMN a int",
   ]) assert.throws(() => assertSelectOnly(sql), sql);
 });
+
+test("com: CheerIT users map by phone, drop bad emails, and a user without a phone stays out", () => {
+  const com = SOURCES.find((s) => s.name === "com")!;
+  const rec = com.map({
+    id: "7c1f6a52-0000-4000-8000-000000000001", name: "Fan One", phone: "9876543210", email: "Fan@Example.com",
+    city: "Pune", gender: "FEMALE", avatar_url: "https://img.example/a.png", is_active: true,
+    created_at: "2026-01-01", updated_at: "2026-02-01", last_login_at: "2026-03-01",
+  });
+  assert.equal(rec.appKey, "com");
+  assert.equal(rec.appUserId, "7c1f6a52-0000-4000-8000-000000000001");
+  assert.equal(rec.phoneRaw, "9876543210");
+  assert.equal(rec.email, "fan@example.com");
+  assert.equal(rec.gender, "FEMALE");
+  assert.equal(rec.isActive, true);
+  assert.equal(rec.lastActiveAt?.toISOString().slice(0, 10), "2026-03-01");
+
+  const noPhone = com.map({ id: "b", name: "Access Code Guest", phone: null, email: "not-an-email", is_active: true });
+  assert.equal(noPhone.phoneRaw, null);
+  assert.equal(noPhone.email, null);
+  const merged = mergeRecords([rec, noPhone]);
+  assert.equal(merged.people.length, 1);
+  assert.equal(merged.stats.invalidRecords, 1);
+  assert.ok(merged.issues.some((i) => i.type === "invalid_phone" && i.appKey === "com"));
+});
