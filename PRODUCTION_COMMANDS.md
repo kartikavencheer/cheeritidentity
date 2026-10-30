@@ -8,12 +8,13 @@ Replace every `<placeholder>` with a real value. Run everything on the backend s
 - Never run `prisma db push` or `prisma migrate deploy` for this. Only `npx prisma generate`.
 - Use phone numbers you own for tests. A real OTP SMS is sent.
 - Node 22 or newer is required for the identity scripts: `node -v`.
+- **Nothing in CheerIT's code or database is changed by any of this.** Do not run anything against CheerIT's database.
 
 ## 1. Back up every app database
 
 ```bash
 mkdir -p ~/identity-backups
-for db in <score_db> <gameit_db> <predictit_db> <turfit_db> <cheerit_api_db>; do
+for db in <score_db> <gameit_db> <predictit_db> <turfit_db>; do
   PGPASSWORD='<admin-password>' pg_dump -h <db-host> -U <admin-user> -Fc "$db" -f ~/identity-backups/$db-$(date +%Y%m%d-%H%M).dump
 done
 ls -la ~/identity-backups
@@ -47,14 +48,12 @@ SRC_BOOKING_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<gameit_db>
 SRC_PREDICTIT_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<predictit_db>
 SRC_TURFIT_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<turfit_db>
 SRC_SPONSOR_URL=
-SRC_COM_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<cheerit_api_db>
 
 LINK_SCORE_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<score_db>
 LINK_BOOKING_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<gameit_db>
 LINK_PREDICTIT_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<predictit_db>
 LINK_TURFIT_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<turfit_db>
 LINK_SPONSOR_URL=
-LINK_COM_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<cheerit_api_db>
 ```
 
 Add `?sslmode=require` to a URL if that database needs SSL.
@@ -101,9 +100,8 @@ Expected: `{"ok":true}`.
 | PredictIt | `predictit` | `predictit-backend` | `<path>/predictitapp/backend` |
 | TurfIT | `turfit` | `turfitweb-backend` | `<path>/turfitweb/Backend` |
 | GameIT | `booking` | `pickleball-backend` | `<path>/pickleball/backend` |
-| CheerIT API | `com` | `<cheerit-api-pm2-name>` | `<path>/CheerITWebAPI/CheerITWebAPIV4` |
 
-Deploy the app's code first (merged branch, `npm install`). **CheerIT API only:** run `identity_link.sql` with `psql` **before** pulling the code, then pull branch `globaldb` (see the note below the block). Then, for that app:
+Deploy the app's code first (merged branch, `npm install`). Then, for that app:
 
 ```bash
 APP=score; PM2=scoreit-backend; DIR=<path>/ScoreIT/backend
@@ -120,14 +118,6 @@ pm2 restart $PM2 --update-env
 ```
 
 The key length must be about 53 to 57, not `0`. The `grep -c` must print `0` before the `printf`, so you do not add the lines twice. Run the `printf` once.
-
-CheerIT API: `identity_link.sql` is in `CheerITWebAPIV4/`. It is additive and safe to repeat:
-
-```bash
-psql -h <db-host> -U <owner-user> -d <cheerit_api_db> -f identity_link.sql
-```
-
-Order for CheerIT: run the SQL, then pull, then `npx prisma generate`, then restart. Pulling and regenerating before the SQL breaks queries on `User` and `Event`.
 
 ## 8. Test after each app
 
@@ -156,6 +146,40 @@ pm2 start identity
 curl http://127.0.0.1:4100/health
 ```
 
+## 10. Cheering from the Score page (optional, after the apps are connected)
+
+Needs the Score branch `feat/cheerit-cheer` deployed (it includes the OTP fix) and the settings below. Nothing is installed
+in CheerIT. Ask the CheerIT team for the two things marked "ask".
+
+```bash
+# Score backend: the CheerIT API address (no trailing /api). Score then finds a match's CheerIT event by team names.
+echo "CHEERIT_API_URL=https://<cheerit-api-host>" >> <path>/ScoreIT/backend/.env
+pm2 restart scoreit-backend --update-env
+
+# Score frontend: set it in the env the build reads, then rebuild and publish the frontend as usual.
+#   VITE_CHEERIT_API_URL=https://<cheerit-api-host>
+#   VITE_CHEERIT_WEB_URL=https://cheerit.com        (optional, the "On CheerIT" link)
+cd <path>/ScoreIT/frontend && npm run build
+```
+
+Check that Score can find the event of a live match (replace 12 with a live Score match id):
+
+```bash
+curl -s http://127.0.0.1:<score-port>/api/public/matches/12/cheerit
+```
+
+- `{"linked":true,"eventId":"…"}`: working.
+- `"reason":"no_match"`: no live CheerIT event names both teams. The team names must appear in the CheerIT event name.
+- `"reason":"ambiguous"`: two or more live CheerIT events name both teams. A match is never linked to a guess.
+- `"reason":"unavailable"`: the Score server cannot read CheerIT's live list (`/api/events/mobile/live`).
+- `"reason":"not_configured"`: `CHEERIT_API_URL` is not set on the Score backend, and the card stays hidden.
+
+Ask the CheerIT team: (1) a live event for the match, named with both team names, of a **sports** event type (CheerIT
+refuses team cheers for other types); (2) the storage bucket must allow browser uploads (CORS, POST) from Score's websites.
+
+Then test once with a number you own: open the live match page, tap a team, log in to CheerIT (first time on a device), take a
+photo, send. A real SMS is sent for the CheerIT login.
+
 ## Rollback
 
 ```bash
@@ -180,3 +204,8 @@ pg_restore --clean -h <db-host> -U <admin-user> -d <db> ~/identity-backups/<file
 | `HTTP 401` in an app log | Reissue that app's key, rewrite the `.env` line, restart with `--update-env` |
 | `HTTP 500` and `PayloadTooLargeError` | Deploy the avatar fix (`fix/identity-skip-data-avatar`) on GameIT and TurfIT |
 | `identityId` Prisma errors | `npx prisma generate` in that backend, then restart |
+| Cheer card not shown at all | `CHEERIT_API_URL` missing on the Score backend, or `VITE_CHEERIT_API_URL` missing in the frontend build |
+| Card says cheering opens when the match is live on CheerIT | See the `reason` in step 10 |
+| A photo or video gets an upload slot but the upload fails | CheerIT's storage bucket does not allow Score's websites (CORS) |
+| Cheer refused: "team_id … not allowed for non-sports events" | The CheerIT event is not a sports event type; CheerIT's team has to change the event |
+| Predict card has an empty body | PredictIt is not reachable at `VITE_PREDICT_API_URL` |

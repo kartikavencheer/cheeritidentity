@@ -389,10 +389,104 @@ Rewrote `HANDOFF.md` as one current-state document and added this session here.
 
 ---
 
+# Session 3: Mac and the dev server, 2026-10-29 to 2026-10-30
+
+## 31. "Now what to do further" and the Score and Sponsor check
+
+Next steps were listed. **You:** Score and Sponsor do check the OTP. **Checked in the Mac code:** Score's
+`/api/auth/otp-verify` never called `validateOtp` (the frontend only calls that one endpoint; the checker
+`verifyOtpAndLogin` was never used). Sponsor's OTP is real; only its `AUTH_SECRET` fallback (`cheerit-demo-secret`) is a risk.
+**Fix built:** `validateOtp(phoneNumber, otp)` before issuing a token, 401 on failure; the access token and sessions are
+unchanged. Pushed as `fix/verify-otp-on-login`.
+
+## 32. Syncing every project on the Mac
+
+All repos checked. **Found:** PredictIt was stuck in a half-finished merge (only `.env.example` conflicted, already resolved
+in the file) and was finished and pushed; GameIT, TurfIT and Sponsor were only apparently ahead (already pushed).
+Uncommitted work in CheerIT-COM, Moderator, MatrimonialAdminDash and others was listed, not touched.
+
+## 33. Testing locally on the Mac
+
+The service failed to start (`.env` used `DATABASE_URL`, the code reads `IDENTITY_URL`; the database is `cheerit_identity`).
+A key was issued and written into Score's `.env`. Mac Score needed `prisma generate` for the new field and the
+`identity_id` migration. Result: wrong OTP rejected, right OTP logs in, the same person is found across five apps.
+
+## 34. The product idea
+
+Your plan: on the public score page, Predict and Cheer; cheers on a 4 or 6; one login across apps; data saved per app under
+one person; a visualisation of which app each user started from. **Agreed split:** (1) Predict and Cheer *inside* Score, with
+Score's backend acting for the logged-in viewer; (2) login-once across apps is a separate, later piece. PredictIt already
+mirrors Score matches and runs next-ball questions.
+
+## 35. Deploying the data move on the dev server
+
+You deployed on the dev server (Linux, pm2, all backends on one box). Steps and results: backups of five databases;
+`dry-run` (first run skipped everything because `npm run dry-run` did not load `.env`; fixed with `--env-file`) then 42 records,
+16 people, 9 in several apps, 1 rejected placeholder phone; created `cheeritidentity`; `apply.ts --apply` wrote 16 people and
+41 memberships (all checks pass, repeat writes 0); `link.ts --apply` added `identity_id` to Score (12), GameIT (7),
+PredictIt (2), TurfIT (18), Sponsor (0 users). The migration log held only name-spelling warnings and role info.
+
+## 36. Turning the apps on, one at a time
+
+Identity service started under pm2; keys issued (the helper writes the key straight into `.env` after two placeholder mistakes).
+PredictIt, Score, TurfIT and GameIT each linked on login. **GameIT failed first:** HTTP 500 from the service because GameIT sent
+a 24 KB base64 profile photo and the service accepts 10 KB. Fix on branches `fix/identity-skip-data-avatar` (GameIT, TurfIT).
+Score on the server was in a half-finished merge; the OTP fix was applied as a patch (no commits on the server).
+
+## 37. Production deployment documents
+
+For another developer (frontend, backend and database on separate servers): `PRODUCTION_RUNBOOK.md` (phases, checks,
+rollback, every error seen) and `PRODUCTION_COMMANDS.md` (commands only), also published as a page with copy buttons.
+
+## 38. Cheering from Score: investigation
+
+CheerIT's backend (Node/Prisma) was found on the Mac. A cheer is a `Submission` (media + event + user + team). CheerIT events
+come from its own admin; Score matches are not there. Findings: upload goes through `POST /api/submissions/upload-url`, a pre-signed
+storage POST, a `reject` call on failure, status by `submission-details`; limits 10 MB video, 2 MB image, 5 cheers per user,
+cheer window by time; non-sports events refuse team cheers; a PUBLIC event pushes "live" to every user (PRIVATE does not).
+
+## 39. First design: changes in CheerIT (later dropped)
+
+On a side branch `globaldb` in `CheerITWebAPI` (never merged): identity link after login, `POST /auth/sso-login`
+(one-time token), `identity_link.sql`, and a mirror that creates a PRIVATE CheerIT event for each live Score match plus a
+lookup endpoint. Tested on a scratch DB (13 and 11 tests). Also in the identity repo: `com` source and link target.
+Corrections made then: cheers are approved at once unless AI check is on; CheerIT trusts `user_id` in the upload request.
+
+## 40. The Score cheer card
+
+Built in a separate worktree of Score (your tree had someone's uncommitted work): `CheerCard.tsx`, `cheeritSso.ts` route, a
+"Cheer for it" button on fours and sixes. Tested in headless Chrome with pretend servers (states, photo resize, video recording,
+upload failure, stale session). Later: live in-page camera like the CheerIT web app (countdown, 7 s auto-stop, switch camera,
+fallback to the phone camera app), tested with Chrome's fake camera. PredictIt was not running on port 4000, which is why the
+predict card was empty; it was started and the card now shows a message when PredictIt is unreachable.
+
+## 41. "Don't change CheerIT"
+
+You ruled out any change in CheerIT. The earlier edit not yet committed there was reverted; the three commits stay only on the
+side branch. **New design on the Score side only:** (1) link a match to a CheerIT event by team names among CheerIT's live
+events (exactly one must name both teams; no database change); (2) event settings and teams from CheerIT's existing details
+endpoint; (3) login: one-time token when CheerIT supports it, otherwise one CheerIT OTP inside the card. A stand-in CheerIT API
+(`backend/dev/fake-cheerit-api.mjs`) answers only CheerIT's existing endpoints. Tested: link logic 12/12; card in Chrome against
+the stand-in (OTP login, token missing, token present, unknown number, wrong code, second cheer without login). Real CheerIT's
+upload code was run earlier on a scratch copy and accepts the card's requests.
+
+## 42. Mistakes made and owned
+
+A placeholder written into `.env` (twice, by pasted commands); a `git stash`/`pop` that was unnecessary; two broad `pkill`
+commands that stopped other servers (one was your stand-in CheerIT, restarted); a first test photo that was random noise and hid
+a resizer weakness (now tries smaller sizes); several shell word-splitting slips.
+
+## 43. This documentation update
+
+`HANDOFF.md` rewritten, this session added, and both deployment documents updated to the final design (no CheerIT change, Score
+cheer feature as Phase 9).
+
+---
+
 ## Where things stand
 
-- Done locally on the Windows PC: identity DB, links in all five apps, the identity service, and all five app backends
-  calling it. Everything tested end to end and pushed. The app branches are **not merged**.
-- Not started: dev and production servers, CheerIT-COM, SSO.
-- Urgent: Score's OTP check, Sponsor's `AUTH_SECRET`, and `.env` files committed in the app repos.
-- Full list of open items and next steps: `HANDOFF.md`.
+- Dev server: identity service, data move and four connected apps (Score, GameIT, PredictIt, TurfIT) verified. Sponsor left out.
+- Built but **not merged or deployed**: Score `feat/cheerit-cheer` (cheer card, OTP fix), the two avatar fixes.
+- CheerIT is not changed; its side branch `globaldb` is unused.
+- Not done: real-CheerIT check, production, visualisation page, login-once across apps.
+- Everything to deploy: `PRODUCTION_RUNBOOK.md`. Full list of open items: `HANDOFF.md`.

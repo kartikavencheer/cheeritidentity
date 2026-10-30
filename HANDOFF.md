@@ -1,170 +1,87 @@
 # CheerIT identity: handoff notes
 
-Last updated 2026-10-28 (Windows PC). Read this first when continuing on another device or in a new session.
-For the full discussion, see `CONVERSATION.md`. Plan page: https://claude.ai/artifact/YR4jNKegTPLKBUfoeZuoR4
+Last updated 2026-10-30 (Mac). Read this first. Deploying: `PRODUCTION_RUNBOOK.md` (everything, with reasons) and
+`PRODUCTION_COMMANDS.md` (commands only). Full discussion: `CONVERSATION.md`.
 
-## Goal and where we are
+## Goal and status
 
-One account per person across all CheerIT apps, identified by **phone number**, with a record of which apps each
-person uses.
+One account per person across the CheerIT apps, keyed by phone number, plus cheering for a match from the Score page.
 
-| Step | What | Status |
-|---|---|---|
-| Stage 1 | Common users DB `cheeritidentity`, filled from all apps | ✅ Done locally (Mac and Windows) |
-| Stage 2 | `identity_id` column in each app, filled for existing users | ✅ Done locally, all 5 apps |
-| Step A | Identity service (HTTP API the app backends call) | ✅ Built, tested, pushed |
-| Step B | Each app calls the service after OTP login | ✅ 5 apps, tested end to end, on `cheerit-identity` branches, **not merged** |
-| CheerIT-COM | Same as step B | ❌ Backend is with another developer |
-| Dev / prod servers | Run all of the above on real servers | ❌ Not started |
-| Step C | SSO: log in once, stay logged in across apps | ❌ Not started |
-
-Nothing has changed for real users yet. The new code is off until a server's `.env` has `IDENTITY_SERVICE_URL` and
-`IDENTITY_API_KEY`, and the branches are not merged.
-
-## The apps
-
-| App | Repo (GitHub) | Folder on Windows PC | Branch to merge into | User table | Prod / dev domain |
-|---|---|---|---|---|---|
-| PredictIt | `Shriya2020/predictitapp` | `D:\Downloads\PredictIT-Extract` | `master` | `users` (uuid) | predictitplay.com / devpredictit.avenengage.com |
-| TurfIT | `Shriya2020/turfitweb` | `D:\Downloads\turfit` | `master` | `"User"` (cuid), one row per (phone, role) | turfitplay.com / devturfit.avenengage.com |
-| Score | `Shriya2020/ScoreIT` | `D:\Downloads\ScoreIT` | `scoreit/badminton` (branch starts there) | `si_user` (Int) | scoreitplay.com / devscoreit.avenengage.com |
-| GameIT (booking) | `Shriya2020/pickleball` | `D:\Downloads\pickleball` | `main` | `users` (cuid) | gameitplay.com / devgameit.avenengage.com |
-| Sponsor | `Shriya2020/CheerIT-Sponsor` | `D:\Downloads\CheerIT-Sponsor-main\CheerIT-Sponsor-main` | `stackchnage` (the OTP code lives there, not on `main` or `version2`) | `sp_sponsor_auth_users` (uuid) | sponsoritplay.com / devsponsorit.avenengage.com |
-| CheerIT-COM | `Shriya2020/CheerIT-COM` (frontend only) | `D:\Downloads\CheerIT-COM` | n/a | separate backend, no access | cheerit.com / devcheerit.avenengage.com |
-| Identity | `kartikavencheer/cheeritidentity` | `D:\Downloads\cheeritidentity` | `main` (pushed directly) | `users`, `user_apps` | proposed accounts.cheerit.com / devaccounts.avenengage.com |
-
-Compare links to review and merge:
-- https://github.com/Shriya2020/predictitapp/compare/cheerit-identity
-- https://github.com/Shriya2020/turfitweb/compare/cheerit-identity
-- https://github.com/Shriya2020/ScoreIT/compare/cheerit-identity
-- https://github.com/Shriya2020/pickleball/compare/cheerit-identity
-- https://github.com/Shriya2020/CheerIT-Sponsor/compare/cheerit-identity
-
-## Decisions made
-
-- Phone number (E.164, India default) is the person. Email is not unique.
-- Separate database `cheeritidentity`. Apps never read it; they call the identity service.
-- Each app keeps its own user table. Only one nullable `identity_id` column is added (Score: `si_user_identityid`,
-  TurfIT: `"identityId"`, unique per (identityId, role)).
-- Conflicts on name or email: the most recently active app wins. Profile fields only ever fill blanks.
-- An app user already linked to a different phone is never moved automatically (service answers `409`).
-- Sponsor: a mobile on the auth user counts as verified; a contact mobile only as unverified. `@mobile.sponsor`
-  emails are dropped. Superadmin is not a person.
-- Score logins are sent as **not verified**, because Score's OTP check is broken (see open items).
-- Dev must behave like production: no shared `avenengage.com` cookies for SSO.
-- App changes go on `cheerit-identity` branches, never straight to the deploy branch.
-
-## What is built (this repo)
-
-| Path | Purpose |
+| Piece | Status |
 |---|---|
-| `sql/001_identity_schema.sql` | `users`, `user_apps`, `migration_runs`, `migration_log` |
-| `sql/002_app_clients.sql` | API keys (stored as SHA-256 only) |
-| `sql/apps/*.sql` | The identity column per app (Prisma-compatible plain unique indexes) |
-| `src/phone.ts`, `src/sources.ts`, `src/merge.ts`, `src/collect.ts`, `src/db.ts` | Read every app read-only, merge by phone |
-| `src/dry-run.ts` | Report only |
-| `src/apply.ts` | Stage 1: write people and memberships. `--apply`, `--verify-only` |
-| `src/link.ts`, `src/link-plan.ts` | Stage 2: add and fill the identity column in each app. Refuses an app with any mismatch. Reports `NOT IN IDENTITY` for app users never seen (new signups in an app not yet calling the service, or rejected phones) |
-| `src/server.ts`, `src/service/` | Step A: the identity service (Express 5, port 4100, 127.0.0.1 only) |
-| `src/issue-key.ts` | One key per app; reissuing revokes the old one |
-| `test/` | 29 tests. Six need `TEST_IDENTITY_URL` pointing at a throwaway DB with "test" in its name |
+| Identity DB + service + data move (`apply.ts`, `link.ts`) | ✅ Done and verified on the **dev server** (16 people, 41 memberships) |
+| Identity calls in Score, GameIT, PredictIt, TurfIT | ✅ Turned on and tested on dev (one login per app shows in `user_apps`) |
+| Sponsor | Left out on dev (0 users there). Code is ready; see runbook Phase 8 |
+| Score OTP fix (`/api/auth/otp-verify` now checks the OTP) | ✅ Tested, on dev. **Not merged on GitHub**: it is inside `feat/cheerit-cheer` |
+| Score cheer card (team pick, live camera, upload) | ✅ Built and tested against a stand-in CheerIT. **Not merged**, not deployed |
+| Real CheerIT | ❌ Never tested against the real server (no access) |
+| Production | ❌ Not started |
+| Identity data visualisation page, login-once across apps (SSO) | ❌ Not built |
 
-Service API (details and a copy-paste snippet in `README.md`): `POST /v1/users/resolve`, `GET /v1/users/:id`,
-`GET /v1/users?phone=`, `GET /health`. Every `/v1` call needs `Authorization: Bearer <IDENTITY_API_KEY>`.
+## The rule: CheerIT is not changed
 
-## What each app got (step B)
+No code and no database change in CheerIT. The cheer card uses CheerIT's existing API only. A side branch `globaldb` in
+`Shriya2020/CheerITWebAPI` has earlier changes (identity link, token login, match mirror). **They are not needed. Do not deploy
+them.** `main` there is untouched. The identity repo still has a `com` source/link target for CheerIT's user table; it is unused
+(leave `SRC_COM_URL`/`LINK_COM_URL` empty), and linking would add a column to CheerIT's database, so do not run it.
 
-Same pattern everywhere: an identity client file, one **not awaited** call right after a successful login, a
-migration that adds the column (`IF NOT EXISTS`), and the Prisma field. If the service is down, login carries on
-(tested: fails in about 20 ms with a warning in the log).
+## Branches to merge (nothing below is merged yet)
 
-| App | Client file | Call added in | Migration |
-|---|---|---|---|
-| PredictIt | `backend/src/services/identityClient.ts` | `authService.ts` `verifyOtpAndLogin` | `prisma/migrations/20261028000000_identity_id` |
-| TurfIT | `Backend/src/lib/identityClient.ts` (skips the "New User" placeholder name) | `playerAuth.ts` and `ownerAuth.ts` verify-otp | `prisma/migrations/20261028000000_identity_id` |
-| Score | `backend/server/identity.ts` | `server.ts`: otp-verify (both branches) and `/api/auth/handoff` | `prisma/migrations/20261028000000_identity_id` |
-| GameIT | `backend/src/services/identityClient.ts` | `authService.ts` `verifyOtpAndLogin` | `prisma/migrations/20261028000000_identity_id` |
-| Sponsor | `backend/services/identityClient.ts` | `authService.ts` `verifyLoginOtp` (OTP login only, not email+password) | `sql/sponsor_portal/024_identity_link.sql` |
+| Repo | Branch | What |
+|---|---|---|
+| `Shriya2020/ScoreIT` | `feat/cheerit-cheer` | Cheer card, OTP fix, lookup route, optional token route |
+| `Shriya2020/pickleball` (GameIT) | `fix/identity-skip-data-avatar` | Do not send base64 photos to identity (they made the call fail with HTTP 500) |
+| `Shriya2020/turfitweb` | `fix/identity-skip-data-avatar` | Same |
+| `Shriya2020/predictitapp` | `master` | Already has the identity code |
+| `kartikavencheer/cheeritidentity` | `main` | The service and scripts (deploy from GitHub, not a local copy) |
 
-## How to run (PowerShell)
+## Dev server (Linux, pm2, one box for all backends)
 
-```powershell
-cd D:\Downloads\cheeritidentity
-npm install
-npm test
-npm start                              # identity service on http://127.0.0.1:4100, reads .env
-npm run issue-key -- turfit            # prints a new key once; goes in that backend's .env as IDENTITY_API_KEY
-Invoke-RestMethod http://127.0.0.1:4100/health
-```
+- Identity service under pm2 as `identity` on `127.0.0.1:4100`; database `cheeritidentity`; keys issued for `score`, `booking`,
+  `predictit`, `turfit`, each in that app's `.env` only (`IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY`).
+- Backups of the app databases from before the data move are in `~/websites/cheeritidentity/backups/` there.
+- Several repos on that server have **uncommitted hand-applied edits** (Score has a half-finished merge of the `scoring` commit,
+  GameIT has a local `env` commit that is not on GitHub: do not push it, it may contain `.env`). Do not `git stash` or `reset`.
+- Score on dev has the OTP fix applied by hand; GameIT has the avatar fix applied by hand.
+- CheerIT's API is **not** on that server. The Score cheer feature has not been switched on there.
 
-`.env` in this folder holds `IDENTITY_URL=postgresql://postgres:<password>@127.0.0.1:5432/cheeritidentity`.
+## Score cheer feature (branch `feat/cheerit-cheer`)
 
-Check every app is linked:
+- `GET /api/public/matches/:id/cheerit` finds the live CheerIT event by team names (exactly one event must name both teams).
+- The card reads the event settings and teams from CheerIT (`/api/events/mobile/:id/details`), then uploads like the CheerIT web app.
+- Login: one-time token if CheerIT ever supports it; today a one-time CheerIT OTP inside the card.
+- Needs `CHEERIT_API_URL` (Score backend) and `VITE_CHEERIT_API_URL` (Score frontend build). Hidden without them.
+- Ask the CheerIT team: a live sports-type event naming both teams; storage CORS (POST) for Score's websites.
+- Local demo: `FAKE_MATCH_IDS=12 PORT=4300 node backend/dev/fake-cheerit-api.mjs` in the Score repo (CheerIT login code `123456`).
+- Known: cheers are approved at once unless the event has the AI check on; CheerIT trusts `user_id` in the upload request.
 
-```powershell
-$env:IDENTITY_URL="postgresql://postgres:root@127.0.0.1:5432/cheeritidentity"
-$env:LINK_SCORE_URL="postgresql://postgres:root@127.0.0.1:5432/post"
-$env:LINK_BOOKING_URL="postgresql://postgres:root@127.0.0.1:5432/gameit"
-$env:LINK_PREDICTIT_URL="postgresql://postgres:root@127.0.0.1:5432/predictit"
-$env:LINK_TURFIT_URL="postgresql://postgres:root@127.0.0.1:5432/turfitweb"
-$env:LINK_SPONSOR_URL="postgresql://postgres:root@127.0.0.1:5432/sponsor_db"
-npm run link:verify
-```
+## Mac (local) state
 
-To add users who signed up since: run `node src/apply.ts --apply` (with the `SRC_*_URL` variables, same values),
-then `node src/link.ts --apply`.
-
-## Current state: Windows PC
-
-- Postgres 18 on `localhost:5432`, user `postgres`. Tools in `C:\Program Files\PostgreSQL\18\bin` (not on PATH).
-- Databases: `post` (Score), `gameit` (GameIT), `predictit`, `turfitweb` (TurfIT, local), `sponsor_db`,
-  `cheeritidentity`, `cheeritidentity_test` (for tests only).
-- `cheeritidentity`: 11 people, 15 memberships. Linked: Score 1, GameIT 3, PredictIt 9, TurfIT 1, Sponsor 1.
-  One Sponsor account has no phone at all and stays out.
-- `sponsor_db` got Sponsor migrations `022`, `023` and `024`.
-- Keys issued for predictit, turfit, score, booking and sponsor. Each sits **only** in that backend's local `.env`.
-- Backups of every app database from before each change are in `backups/` (git-ignored). Restore with
-  `pg_restore --clean -d <db> backups/<db>-<time>.dump`.
-- Repos are left on their `cheerit-identity` branches. Their local `.env` files are modified (the two identity
-  lines) and must not be committed.
-- TurfIT's own `.env` points at a **remote Aiven database**. All tests here overrode it to local `turfitweb`.
-  Never touch the Aiven one without explicit approval.
-
-The Mac has its own local `cheerit_identity` (31 people, from different local data). Local databases do not travel
-with git; rebuild on each machine with `apply.ts --apply` and `link.ts --apply`.
+- Postgres on `localhost:5433` (user `avenpc`). DBs: `cheeritadmin` (Score), `pickle` (GameIT), `predictit`, `turfit2`,
+  `cheerit_sponsor`, `cheerit_identity` (31 people). Scratch DBs for tests (safe to drop): `cheerit_api_scratch`,
+  `cheeritidentity_test`, `cheeritidentity_com_scratch`.
+- The Score working tree has uncommitted work that is not from this notes' author (predict card, `.env` files). Tracked `.env`
+  files hold secrets.
+- Local Score runs from `CheerIT-Score`; my cheer branch lives in a separate worktree `CheerIT-Score-cheer`
+  (`git worktree remove` when done).
 
 ## Open items (most urgent first)
 
-1. 🔴 **Score login does not check the OTP.** `POST /api/auth/otp-verify` in `ScoreIT/backend/server.ts` never
-   calls `validateOtp`, so any code logs in as any phone (tested here with `0000`). Check production; fix it.
-2. 🔴 **Sponsor `AUTH_SECRET`:** `middleware/auth.ts` and the OTP hash fall back to `"cheerit-demo-secret"` when it is
-   unset. Confirm it is set in production.
-3. **`.env` files are committed** in all five app repos (JWT secrets, DB passwords, SMS keys in git history). Untrack
-   them and rotate the secrets before production.
-4. **`cheeritidentity/.env`:** removed from `.gitignore` by hand. Either commit it on purpose or ignore it again.
-5. **Prisma drift:** local `post` has `si_reward*` tables ScoreIT's schema no longer has; local `turfitweb` is behind
-   TurfIT's schema; Sponsor's `schema.prisma` lacks `mobile_number` and `identity_id`. A `prisma db push` in any of
-   these would drop data.
-6. CheerIT-COM: get the users table and an export from its developer, give them a key (`npm run issue-key -- com`).
-7. Confirm the domain mapping (scoreitplay.com = Score, gameitplay.com = GameIT) and the identity domain names.
-8. Sponsor email+password logins do not link at login time; only the batch scripts link them.
-9. Not yet checked: whether CheerIT-COM's SSO token is single-use.
+1. Merge the branches above; deploy the Score OTP fix first (today any code logs in to Score as any phone).
+2. Untrack the `.env` files committed in the app repos (the `scoring` commit pushed Score's `backend/.env`) and rotate secrets.
+3. Sponsor `AUTH_SECRET` must be set in production (else it falls back to `cheerit-demo-secret`).
+4. Turn off OTP logging and dev OTP mode in production.
+5. Real-CheerIT check of the cheer card: `GET /api/events/mobile/live` shape, one real cheer, storage CORS.
+6. Tell the CheerIT team about the `user_id` trust issue in their upload endpoint.
+7. Production rollout, one app at a time, with backups (runbook).
+8. Later: visualisation page for the identity data, login-once across apps.
 
-## Next steps
+## Lessons (do not repeat)
 
-1. Fix and check open items 1 and 2.
-2. Review and merge the five `cheerit-identity` branches (into the branch named in the table above).
-3. Put the identity service on the dev server (`devaccounts.avenengage.com`) with its own Postgres database, run
-   `apply.ts` and `link.ts` against the dev databases, issue one key per dev backend, set the two env vars there.
-4. CheerIT-COM.
-5. Production: backup, one app at a time.
-6. Step C, SSO: the identity service issues short-lived single-use tokens and keeps its own login cookie; apps
-   redirect to it when the browser is not logged in. Reuse the existing handoff pattern (Score
-   `/api/auth/handoff`, CheerIT-COM `/sso/login?token=`).
-
-## Lessons from testing (do not repeat)
-
-- Test phone numbers can be real seed users (`+919000000001` was "Amit" in PredictIt and was deleted, then restored
-  from backup). Always check a number does not exist first, and delete only rows the test created, by id.
-- Local `.env` files hold live SMS keys. One real OTP SMS went to 9898989898 during a GameIT test. Before any OTP
-  request, read that app's OTP code and make sure sending is skipped, or override the SMS URL to a dead address.
+- Never paste `<placeholders>` into a command or a `.env` (a literal `<predictit key>` was written twice). Have scripts write keys
+  straight into the file.
+- Test with a number you own: every real login sends an SMS. Never use seed numbers (`+919000000001` was a real user).
+- A login filter in a check query hides the other apps (`where app_key='booking'`).
+- `pkill -f` patterns are too broad: one stopped a stand-in server that was not mine.
+- `prisma generate` after pulling code with a new Prisma field; never `db push` or `migrate deploy` for this.
+- A disk at 100% breaks everything (npm, the shell). Keep caches on the big volume.
