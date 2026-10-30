@@ -3,11 +3,14 @@
 //   POST /v1/users/resolve      find or create the person for a phone, link the calling app's user row
 //   GET  /v1/users/:id          a person and the apps they use
 //   GET  /v1/users?phone=...    look a person up by phone
+//   POST /v1/sso/issue          one-time token so a person logged in to this app can be signed in to another
+//   POST /v1/sso/redeem         swap a token issued for this app for the person
 //   GET  /health                database reachable
 
 import express, { type NextFunction, type Request, type Response } from "express";
 import type pg from "pg";
 import { requireAppKey } from "./auth.ts";
+import { issueSsoToken, redeemSsoToken } from "./sso.ts";
 import { findByPhone, getUser, resolveUser, ServiceError } from "./store.ts";
 
 export function createApp(pool: pg.Pool) {
@@ -38,6 +41,14 @@ export function createApp(pool: pg.Pool) {
     const user = await findByPhone(pool, res.locals.appKey, req.query.phone);
     if (!user) return res.status(404).json({ error: "not_found" });
     res.json({ user });
+  });
+
+  v1.post("/sso/issue", async (req, res) => {
+    res.status(201).json(await issueSsoToken(pool, res.locals.appKey, req.body ?? {}));
+  });
+
+  v1.post("/sso/redeem", async (req, res) => {
+    res.json({ user: await redeemSsoToken(pool, res.locals.appKey, req.body ?? {}) });
   });
 
   app.use("/v1", v1);

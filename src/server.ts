@@ -14,7 +14,7 @@ const url = process.env.IDENTITY_URL;
 if (!url) throw new Error("Set IDENTITY_URL to the identity database connection string.");
 
 const pool = new pg.Pool({ connectionString: url, max: 10, application_name: "cheerit-identity-service" });
-for (const file of ["001_identity_schema.sql", "002_app_clients.sql"]) {
+for (const file of ["001_identity_schema.sql", "002_app_clients.sql", "003_sso_tokens.sql"]) {
   await pool.query(readFileSync(new URL(`../sql/${file}`, import.meta.url), "utf8"));
 }
 

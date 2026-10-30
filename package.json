@@ -10,10 +10,10 @@
   "scripts": {
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "dry-run": "node src/dry-run.ts",
+    "dry-run": "node --env-file-if-exists=.env src/dry-run.ts",
     "dry-run:demo": "node src/dry-run.ts --fixtures fixtures/demo",
-    "link": "node src/link.ts",
-    "link:verify": "node src/link.ts --verify-only",
+    "link": "node --env-file-if-exists=.env src/link.ts",
+    "link:verify": "node --env-file-if-exists=.env src/link.ts --verify-only",
     "start": "node --env-file-if-exists=.env src/server.ts",
     "issue-key": "node --env-file-if-exists=.env src/issue-key.ts"
   },

@@ -31,7 +31,7 @@ before(async () => {
   if (!url) return;
   if (!/test/i.test(new URL(url).pathname)) throw new Error("TEST_IDENTITY_URL must name a database with 'test' in it.");
   pool = new pg.Pool({ connectionString: url, max: 5 });
-  for (const file of ["001_identity_schema.sql", "002_app_clients.sql"]) {
+  for (const file of ["001_identity_schema.sql", "002_app_clients.sql", "003_sso_tokens.sql"]) {
     await pool.query(readFileSync(new URL(`../sql/${file}`, import.meta.url), "utf8"));
   }
   await pool.query("TRUNCATE users, user_apps, app_clients, migration_runs, migration_log CASCADE");
@@ -92,4 +92,49 @@ test("a reissued key replaces the old one", { skip }, async () => {
   keys.turfit = await issueKey(pool, "turfit");
   assert.equal((await call("GET", "/v1/users?phone=9876543210", old)).status, 401);
   assert.equal((await call("GET", "/v1/users?phone=9876543210", keys.turfit)).status, 200);
+});
+
+test("sso: a token signs a person in to one other app, once", { skip }, async () => {
+  keys.predictit = await issueKey(pool, "predictit");
+  // Person 9811111111 is a verified Score user.
+  const person = (await call("POST", "/v1/users/resolve", keys.score, { phone: "9811111111", appUserId: "501", name: "Ravi" })).body.user;
+
+  const issued = await call("POST", "/v1/sso/issue", keys.score, { identityId: person.id, toApp: "predictit" });
+  assert.equal(issued.status, 201);
+  assert.equal(issued.body.expiresIn, 60);
+
+  // Only the target app can redeem it.
+  assert.equal((await call("POST", "/v1/sso/redeem", keys.turfit, { token: issued.body.token })).status, 401);
+
+  const redeemed = await call("POST", "/v1/sso/redeem", keys.predictit, { token: issued.body.token });
+  assert.equal(redeemed.status, 200);
+  assert.equal(redeemed.body.user.id, person.id);
+  assert.equal(redeemed.body.user.phone, "+919811111111");
+
+  assert.equal((await call("POST", "/v1/sso/redeem", keys.predictit, { token: issued.body.token })).status, 401, "single use");
+});
+
+test("sso: refuses unverified, unknown, blocked and expired", { skip }, async () => {
+  // Unverified phone: the app said it did not check the number.
+  const unverified = (await call("POST", "/v1/users/resolve", keys.score, { phone: "9822222222", appUserId: "502", phoneVerified: false })).body.user;
+  assert.equal((await call("POST", "/v1/sso/issue", keys.score, { identityId: unverified.id, toApp: "predictit" })).body.error, "phone_not_verified");
+
+  // An app can only mint tokens for people it has a row for.
+  const scoreOnly = (await call("POST", "/v1/users/resolve", keys.score, { phone: "9833333333", appUserId: "503" })).body.user;
+  assert.equal((await call("POST", "/v1/sso/issue", keys.turfit, { identityId: scoreOnly.id, toApp: "predictit" })).status, 404);
+
+  assert.equal((await call("POST", "/v1/sso/issue", keys.score, { identityId: scoreOnly.id, toApp: "score" })).body.error, "invalid_to_app");
+  assert.equal((await call("POST", "/v1/sso/issue", keys.score, { identityId: scoreOnly.id, toApp: "nope" })).body.error, "invalid_to_app");
+
+  // Blocked people get nothing, even with a token issued before they were blocked.
+  const issued = await call("POST", "/v1/sso/issue", keys.score, { identityId: scoreOnly.id, toApp: "predictit" });
+  await pool.query("UPDATE users SET status = 'blocked' WHERE id = $1", [scoreOnly.id]);
+  assert.equal((await call("POST", "/v1/sso/redeem", keys.predictit, { token: issued.body.token })).status, 403);
+  assert.equal((await call("POST", "/v1/sso/issue", keys.score, { identityId: scoreOnly.id, toApp: "predictit" })).status, 403);
+
+  // Expired.
+  const person = (await call("POST", "/v1/users/resolve", keys.score, { phone: "9844444444", appUserId: "504" })).body.user;
+  const old = await call("POST", "/v1/sso/issue", keys.score, { identityId: person.id, toApp: "predictit" });
+  await pool.query("UPDATE sso_tokens SET expires_at = now() - interval '1 second'");
+  assert.equal((await call("POST", "/v1/sso/redeem", keys.predictit, { token: old.body.token })).status, 401);
 });

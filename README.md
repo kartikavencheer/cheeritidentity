@@ -73,6 +73,8 @@ npm run issue-key -- score       # one key per app; reissuing revokes the old on
 | `POST /v1/users/resolve` | After a successful OTP (signup or login). Body: `phone`, `appUserId` (required), `role`, `name`, `email`, `avatarUrl`, `gender`, `city`. Finds or creates the person and links your app row. Returns `201` for a new person, `200` otherwise, with `user.id` to store in your `identity_id` column |
 | `GET /v1/users/:id` | A person and the apps they use |
 | `GET /v1/users?phone=...` | Look a person up by phone |
+| `POST /v1/sso/issue` | A person just logged in to your app with a verified OTP. Body: `identityId`, `toApp`. Returns `{ token, expiresIn: 60 }`. Needs a row for the person in your app and a verified phone |
+| `POST /v1/sso/redeem` | The target app swaps the token for the person (`{ user }`) and starts its own session. Body: `token`. Single use, only for the app it was issued to |
 | `GET /health` | No key needed |
 
 Rules: profile fields only fill blanks, never overwrite. A user with `status: "blocked"` must be refused
@@ -93,6 +95,17 @@ if (res.ok) await saveIdentityId(user.id, (await res.json()).user.id);
 Tests for the service need a throwaway database: `TEST_IDENTITY_URL=postgresql://.../cheeritidentity_test npm test`.
 They empty every table in it.
 
+## Single sign-on
+
+The identity service issues one-hop tokens; it keeps no login session. Score -> PredictIT works like this:
+
+1. The viewer is logged in to Score (OTP checked). The card calls Score `POST /api/auth/predictit-sso` with their Bearer token.
+2. Score asks `POST /v1/sso/issue` (`toApp: "predictit"`) and returns the token.
+3. The card posts it to PredictIT `POST /api/auth/sso-login`. PredictIT redeems it, finds or creates the user by phone and returns its own tokens.
+
+A token lives 60 seconds, works once and only for the app it names. Only an app whose login proves the phone (an OTP check, or a
+signed handoff) may call `issue`. Score used to skip the OTP check; it must not be rolled back.
+
 ## Not built yet
 
-Calling the service from each app (step B), and SSO (step C).
+Calling the service from CheerIT-COM, and a central login page for people who arrive at an app without a session.
