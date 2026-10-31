@@ -50,7 +50,7 @@ them.** `main` there is untouched. The identity repo still has a `com` source/li
 - `GET /api/public/matches/:id/cheerit` finds the live CheerIT event by team names (exactly one event must name both teams).
 - The card reads the event settings and teams from CheerIT (`/api/events/mobile/:id/details`), then uploads like the CheerIT web app.
 - Login: one-time token if CheerIT ever supports it; today a one-time CheerIT OTP inside the card.
-- **Auto-create (off by default):** with `CHEERIT_CREATE_EVENTS=on`, a live cricket match with no CheerIT event gets one made through CheerIT's
+- **Auto-create (off by default):** with `CHEERIT_CREATE_EVENTS=on`, every `CHEERIT_SYNC_SECONDS` (default 30) and on page open, a live cricket match with no CheerIT event gets one made through CheerIT's
   existing API (`backend/server/cheeritEventCreate.ts`): finds or creates the "ScoreIT" venue, competition and (empty) event group (creating the competition needs
   `CHEERIT_ORG_ID`; a private event must have a group), finds or creates both teams, adds them to the competition, creates a PRIVATE event (4 hours, 7 s video, 5 cheers).
   Optional `CHEERIT_VENUE_ID`, `CHEERIT_COMPETITION_ID`, `CHEERIT_EVENTTYPE_ID` (default 1 = Cricket, a sports type). Tested against a stub AND against CheerIT's own code on a local
