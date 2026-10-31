@@ -57,6 +57,10 @@ them.** `main` there is untouched. The identity repo still has a `com` source/li
   Optional `CHEERIT_VENUE_ID`, `CHEERIT_COMPETITION_ID`, `CHEERIT_EVENTTYPE_ID` (default 1 = Cricket, a sports type). Tested against a stub AND against CheerIT's own code on a local
   database (`cheerit_new`, port 4400; not the production server). Real CheerIT (`https://api.avenengage.com`) has no login on these create routes: tell its team.
   The lookup uses `?access_scope=all` because PRIVATE events are hidden from the public live list.
+- **Logos and scores:** team logos (only teams with an uploaded logo; `SCORE_PUBLIC_URL` says where Score serves files from) are copied to the CheerIT
+  team. Cricket scores go to CheerIT's scorecard API (`backend/server/cheeritScoreSync.ts`): scorecard, innings, balls, edits and undos, and
+  "complete" when the match ends. One scorecard per event, so the newest live match feeds an event shared by several. Loop default is 15 s
+  (`CHEERIT_SYNC_SECONDS`). Players are not sent. Football/badminton are not wired in (separate Score tables).
 - Needs `CHEERIT_API_URL` (Score backend) and `VITE_CHEERIT_API_URL` (Score frontend build). Hidden without them.
 - Ask the CheerIT team: a live sports-type event naming both teams; storage CORS (POST) for Score's websites.
 - Local demo: `FAKE_MATCH_IDS=12 PORT=4300 node backend/dev/fake-cheerit-api.mjs` in the Score repo (CheerIT login code `123456`).
