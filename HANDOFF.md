@@ -59,7 +59,7 @@ them.** `main` there is untouched. The identity repo still has a `com` source/li
   The lookup uses `?access_scope=all` because PRIVATE events are hidden from the public live list.
 - **Logos and scores:** team logos are copied to the CheerIT team (the uploaded logo, else the default picture the Score website shows, from `backend/assets/team-badges`;
   `SCORE_PUBLIC_URL` says where Score serves uploads from). The CheerIT COM web card shows logos but does NOT read scores from CheerIT. Cricket scores go to CheerIT's scorecard API (`backend/server/cheeritScoreSync.ts`): scorecard, innings, balls, edits and undos, and
-  "complete" when the match ends. One scorecard per event, so the newest live match feeds an event shared by several. Loop default is 15 s
+  "complete" when the match ends. Each Score match has its OWN CheerIT event, named "A vs B (ScoreIT #12)" (`CHEERIT_EVENT_TAG`, default `ScoreIT`, keeps dev and prod match numbers apart); a team missing in Score is "Unknown". Loop default is 15 s
   (`CHEERIT_SYNC_SECONDS`). Players are not sent. Football/badminton are not wired in (separate Score tables).
 - Needs `CHEERIT_API_URL` (Score backend) and `VITE_CHEERIT_API_URL` (Score frontend build). Hidden without them.
 - Ask the CheerIT team: a live sports-type event naming both teams; storage CORS (POST) for Score's websites.
