@@ -53,6 +53,7 @@ them.** `main` there is untouched. The identity repo still has a `com` source/li
 - **Auto-create (off by default):** with `CHEERIT_CREATE_EVENTS=on`, every `CHEERIT_SYNC_SECONDS` (default 30) and on page open, a live cricket match with no CheerIT event gets one made through CheerIT's
   existing API (`backend/server/cheeritEventCreate.ts`): finds or creates the "ScoreIT" venue, competition and (empty) event group (creating the competition needs
   `CHEERIT_ORG_ID`; a private event must have a group), finds or creates both teams, adds them to the competition, creates a PRIVATE event (4 hours, 7 s video, 5 cheers).
+  `CHEERIT_EVENT_ACCESS=public` makes events public (listed in CheerIT's live list, but pushes "live now" to every CheerIT user for every match); default private.
   Optional `CHEERIT_VENUE_ID`, `CHEERIT_COMPETITION_ID`, `CHEERIT_EVENTTYPE_ID` (default 1 = Cricket, a sports type). Tested against a stub AND against CheerIT's own code on a local
   database (`cheerit_new`, port 4400; not the production server). Real CheerIT (`https://api.avenengage.com`) has no login on these create routes: tell its team.
   The lookup uses `?access_scope=all` because PRIVATE events are hidden from the public live list.
