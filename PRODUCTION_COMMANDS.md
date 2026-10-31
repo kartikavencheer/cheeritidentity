@@ -148,37 +148,57 @@ curl http://127.0.0.1:4100/health
 
 ## 10. Cheering from the Score page (optional, after the apps are connected)
 
-Needs the Score branch `feat/cheerit-cheer` deployed (it includes the OTP fix) and the settings below. Nothing is installed
-in CheerIT. Ask the CheerIT team for the two things marked "ask".
+Everything, with the reasons: `CHEERIT_PRODUCTION_GUIDE.md`. Needs the Score branch `feat/cheerit-cheer` deployed (it includes the OTP fix). SSO also needs CheerIT's team to deploy one small commit.
+
+**A. CheerIT's team** (copy of the note: guide §5). No secret goes into chat or Git; keys are copied straight into the `.env`.
 
 ```bash
-# Score backend: the CheerIT API address (no trailing /api). Score then finds a match's CheerIT event by team names.
-echo "CHEERIT_API_URL=https://<cheerit-api-host>" >> <path>/ScoreIT/backend/.env
-pm2 restart scoreit-backend --update-env
+# in CheerIT's repo, a clean branch with ONLY the SSO commit (not the whole globaldb branch)
+git checkout -b sso-login origin/main && git cherry-pick d5f3b67
+# database: nullable columns only, run with psql, never prisma migrate / db push
+psql "<cheerit-db-connection>" -f CheerITWebAPIV4/identity_link.sql
+cd CheerITWebAPIV4 && npx prisma generate
+# on the identity server: a key for CheerIT, printed once, copy it straight into CheerIT's .env
+cd <path>/cheeritidentity && npm run issue-key -- com
+#   CheerIT .env:  IDENTITY_SERVICE_URL=http://<identity-host>:4100   IDENTITY_API_KEY=<the com key>
+pm2 restart <cheerit-pm2-name> --update-env
+# check: 401 "Invalid or expired" = working; 503 = the two settings are missing; 404 = not deployed
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<cheerit-api>/api/auth/sso-login -H 'content-type: application/json' -d '{"token":"wrong"}'
+```
+Also ask CheerIT: storage CORS (POST) for Score's website origins; an organization id; authentication on their create routes.
 
-# Score frontend: set it in the env the build reads, then rebuild and publish the frontend as usual.
-#   VITE_CHEERIT_API_URL=https://<cheerit-api-host>
-#   VITE_CHEERIT_WEB_URL=https://cheerit.com        (optional, the "On CheerIT" link)
-cd <path>/ScoreIT/frontend && npm run build
+**B. Score backend `.env`, then restart**
+
+```bash
+#   CHEERIT_API_URL=https://api.avenengage.com        (no trailing /api; ask CheerIT to confirm it is production)
+#   CHEERIT_CREATE_EVENTS=on                          (off by default; makes events, teams, logos and sends scores)
+#   CHEERIT_ORG_ID=<an organization id from CheerIT>   (only to create the "ScoreIT" competitions the first time)
+#   CHEERIT_EVENT_ACCESS=private                      (public notifies EVERY CheerIT user for EVERY match)
+#   CHEERIT_EVENT_TAG=ScoreIT                         (ScoreIT-dev on a dev Score that feeds the same CheerIT)
+#   SCORE_PUBLIC_URL=https://<score-api-host>         (to copy uploaded team logos)
+pm2 restart scoreit-backend --update-env
+# the log must say: creating CheerIT events and sending scores for live matches every 15s
 ```
 
-Check that Score can find the event of a live match (replace 12 with a live Score match id):
+**C. Score frontend build env, then rebuild** (Vite bakes these in)
+
+```bash
+#   VITE_CHEERIT_API_URL=https://api.avenengage.com
+#   VITE_CHEERIT_TOKEN_LOGIN=on                       (SSO; unset = the card asks for a CheerIT OTP once)
+cd <path>/ScoreIT/frontend && npm install && npm run build
+```
+
+**D. Check one live match** (fake team names first; replace 12 with a live Score match id)
 
 ```bash
 curl -s http://127.0.0.1:<score-port>/api/public/matches/12/cheerit
 ```
+- `{"linked":true,"eventId":"…"}`: working. Within 15 seconds of a match going live an event "A vs B (ScoreIT #12)" exists in CheerIT.
+- `"reason":"no_match"`: no event yet (creation off, not live, or a sport not supported: cricket only today).
+- `"reason":"ambiguous"`: two hand-made CheerIT events name both teams.
+- `"reason":"unavailable"`: Score cannot read CheerIT's live list. `"reason":"not_configured"`: `CHEERIT_API_URL` not set.
 
-- `{"linked":true,"eventId":"…"}`: working.
-- `"reason":"no_match"`: no live CheerIT event names both teams. The team names must appear in the CheerIT event name.
-- `"reason":"ambiguous"`: two or more live CheerIT events name both teams. A match is never linked to a guess.
-- `"reason":"unavailable"`: the Score server cannot read CheerIT's live list (`/api/events/mobile/live`).
-- `"reason":"not_configured"`: `CHEERIT_API_URL` is not set on the Score backend, and the card stays hidden.
-
-Ask the CheerIT team: (1) a live event for the match, named with both team names, of a **sports** event type (CheerIT
-refuses team cheers for other types); (2) the storage bucket must allow browser uploads (CORS, POST) from Score's websites.
-
-Then test once with a number you own: open the live match page, tap a team, log in to CheerIT (first time on a device), take a
-photo, send. A real SMS is sent for the CheerIT login.
+Then cheer once with a phone number you own, and delete the test rows in CheerIT's admin panel.
 
 ## Rollback
 

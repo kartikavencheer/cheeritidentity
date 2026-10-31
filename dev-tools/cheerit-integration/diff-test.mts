@@ -1,0 +1,13 @@
+import assert from "node:assert";
+const { diffBalls } = await import("/Volumes/MACDISK/kartik/WEBSITES/CheerIT-Score-cheer/backend/server/cheeritScoreSync.ts");
+const sb = (r = 0, x = 0, legal = true, w = false, t: string | null = null) => ({ runsOffBat: r, extraRuns: x, isLegalDelivery: legal, isWicket: w, wicketType: t });
+const cb = (id: string, r = 0, x = 0, legal = true, w = false) => ({ ball_id: id, batsman_runs: r, extras: x, is_legal: legal, is_wicket: w });
+assert.deepEqual(diffBalls([], []), []);
+assert.deepEqual(diffBalls([sb(4), sb(1)], [cb("a", 4), cb("b", 1)]), [], "identical -> nothing");
+let ops = diffBalls([sb(4), sb(1), sb(6)], [cb("a", 4), cb("b", 1)]); assert.equal(ops.length, 1); assert.equal(ops[0].op, "add"); assert.equal((ops[0] as any).body.batsman_runs, 6);
+ops = diffBalls([sb(4)], [cb("a", 4), cb("b", 1), cb("c", 2)]); assert.deepEqual(ops.map((o) => o.op + ":" + (o as any).ballId), ["delete:b", "delete:c"], "undo -> delete tail");
+ops = diffBalls([sb(4), sb(2)], [cb("a", 4), cb("b", 1)]); assert.equal(ops.length, 1); assert.equal(ops[0].op, "patch"); assert.equal((ops[0] as any).ballId, "b"); assert.equal((ops[0] as any).body.batsman_runs, 2, "edit -> patch");
+ops = diffBalls([sb(0, 1, false)], [cb("a", 0, 0, true)]); assert.equal(ops[0].op, "patch"); assert.equal((ops[0] as any).body.is_legal, false, "wide fixes legality");
+ops = diffBalls([sb(0, 0, true, true, "bowled")], []); assert.equal((ops[0] as any).body.wicket_type, "bowled"); assert.equal((ops[0] as any).body.is_wicket, true);
+ops = diffBalls([sb(1, 0, true, false, "stale")], []); assert.equal((ops[0] as any).body.wicket_type, null, "no wicket type without a wicket");
+console.log("DIFF PASSED");

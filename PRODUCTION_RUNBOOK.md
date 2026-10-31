@@ -7,7 +7,8 @@ how careful you are. Follow the phases in order and do not skip the checks.
 ## Everything you need before you start
 
 **Access:** SSH to the backend server, Postgres admin on the database server, GitHub access to the app repos and
-`kartikavencheer/cheeritidentity`, Node 22+ and pm2 on the backend server. Nothing is needed on CheerIT's servers.
+`kartikavencheer/cheeritidentity`, Node 22+ and pm2 on the backend server. Phases 1 to 8 need nothing on CheerIT's servers. The cheering feature (Phase 9) is
+described in full in `CHEERIT_PRODUCTION_GUIDE.md`; its SSO login needs CheerIT's team to deploy one small commit.
 
 **Code to deploy**
 
@@ -19,6 +20,7 @@ how careful you are. Follow the phases in order and do not skip the checks.
 | TurfIT | `master` + `fix/identity-skip-data-avatar` | Backend only |
 | PredictIt | `master` | Backend only |
 | Sponsor | optional, see Phase 8 | |
+| CheerIT API | commit `d5f3b67` from `globaldb` only (SSO route), deployed by CheerIT's team | see `CHEERIT_PRODUCTION_GUIDE.md` §5. Not the whole branch |
 
 **Settings, by place**
 
@@ -26,14 +28,14 @@ how careful you are. Follow the phases in order and do not skip the checks.
 |---|---|---|
 | Identity folder `.env` | `IDENTITY_URL`, `PORT`, `SRC_*_URL` (read-only), `LINK_*_URL` (owner) | the identity service and the one-time data move |
 | Score, GameIT, PredictIt, TurfIT backend `.env` | `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` (one key per app) | linking logins to the person |
-| Score backend `.env` | `CHEERIT_API_URL` | finding a match's CheerIT event (Phase 9) |
-| Score frontend build env | `VITE_CHEERIT_API_URL`, optional `VITE_CHEERIT_WEB_URL`; for the predict card `VITE_PREDICT_API_URL`, `VITE_PREDICT_WEB_URL` | the cheer and predict cards |
+| Score backend `.env` | `CHEERIT_API_URL`, `CHEERIT_CREATE_EVENTS`, `CHEERIT_ORG_ID`, `CHEERIT_EVENT_ACCESS`, `CHEERIT_EVENT_TAG`, `CHEERIT_SYNC_SECONDS`, `SCORE_PUBLIC_URL` (and optional `CHEERIT_VENUE_ID`, `CHEERIT_COMPETITION_ID`, `CHEERIT_GROUP_ID`, `CHEERIT_EVENTTYPE_ID`; see the guide §3.3) | events, logos, scores, linking (Phase 9) |
+| CheerIT API `.env` | `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` (the `com` key) | SSO from Score (Phase 9) |
+| Score frontend build env | `VITE_CHEERIT_API_URL`, `VITE_CHEERIT_TOKEN_LOGIN` (`on` for SSO), optional `VITE_CHEERIT_WEB_URL`; after pulling run `npm install` in `frontend/` (new dependency `mediabunny`); for the predict card `VITE_PREDICT_API_URL`, `VITE_PREDICT_WEB_URL` | the cheer and predict cards |
 | Production only | OTP logging and dev OTP mode off; Sponsor `AUTH_SECRET`; rotate secrets that were committed in `.env` files | security |
 
-**Ask the CheerIT team (no change in their code):** a live event for each match, named with both team names and of a sports
-event type; storage upload rules (CORS, POST) that allow Score's websites; confirmation that `GET /api/events/mobile/live` and
-`GET /api/events/mobile/<id>/details` work from the Score server. Also tell them their upload endpoint trusts the `user_id` in the
-request instead of the login.
+**Ask the CheerIT team** (the exact note to copy is `CHEERIT_PRODUCTION_GUIDE.md` §5): deploy the SSO commit and two settings; run `identity_link.sql`; storage upload rules (CORS, POST)
+that allow Score's websites; an organization id for a "ScoreIT" competition; authentication on their create routes (they have none today); and the two issues we found (upload trusts `user_id`; a real `.env`
+is committed on their `main`).
 
 **Also needed for the predict card:** the PredictIt backend running and reachable at `VITE_PREDICT_API_URL`, with its own
 `SCOREIT_API_URL` pointing at the Score API.
@@ -50,7 +52,7 @@ One account per person across all CheerIT apps, identified by phone number (E.16
   If the service is down, slow or the call fails, **login still works** (it logs `[Identity] linking … failed`).
 - **Frontends do not change for identity.** Nothing in the browser or the mobile wrappers uses identity. The one frontend
   change is the Score page's cheer card (Phase 9), which needs a rebuild of the Score frontend.
-- **CheerIT itself is not changed**: no code, no database column, nothing installed there.
+- **For the identity and the four apps, CheerIT is not changed.** The cheering feature (Phase 9) needs one small commit in CheerIT for SSO (optional: without it the card asks for a CheerIT OTP once) and uses CheerIT's existing routes for everything else.
 
 Until an app's `.env` has `IDENTITY_SERVICE_URL` and `IDENTITY_API_KEY`, the new code does nothing.
 
@@ -370,42 +372,27 @@ Sponsor uses numbered SQL files, not Prisma, and keeps one login per company. Th
 
 ## Phase 9: cheering from the Score page
 
-**What a viewer does:** on a public match page they see a "Cheer for your team" card. They pick a team, record a video (up to
-7 seconds) or take a photo with the live camera in the page (or choose a file), preview it, tick consent and send. The cheer is a
-normal CheerIT submission under their CheerIT account, so it also shows in the CheerIT app. On a four or six the boundary
-animation shows a "Cheer for it" button.
+The complete guide (decisions, every setting, the note for CheerIT's team, checks, rollback, problems) is **`CHEERIT_PRODUCTION_GUIDE.md`**. Summary:
 
-**How it connects, with CheerIT unchanged**
+**What a viewer does:** on a match page, "Cheer for your team": pick a team, take a photo or record a video (full-screen camera, up to 7 seconds, sound check, compression), preview, Retake or
+send. The cheer is a normal CheerIT submission under their CheerIT account. Login is SSO (no second code) when enabled, else one CheerIT OTP.
 
-1. **Finding the event.** Score's backend (`GET /api/public/matches/:id/cheerit`) reads CheerIT's public live list
-   (`/api/events/mobile/live`, cached 20 seconds) and links a match only when exactly **one** live CheerIT event names both of
-   its teams. No database change on either side.
-2. **Event settings and teams.** The card reads them from CheerIT (`/api/events/mobile/<id>/details`).
-3. **Login.** First the one-time-token login (Score `POST /api/auth/cheerit-sso`, identity service, CheerIT
-   `/api/auth/sso-login`). CheerIT does not have that endpoint, so today the card asks for the viewer's **CheerIT OTP once**
-   (CheerIT's own `/api/auth/request-otp` and `/verify-otp`, phone prefilled from the Score account) and remembers it on that
-   device. A number with no CheerIT account gets a link to sign up. If CheerIT ever adds the token endpoint, the card uses it
-   with no change on the Score side.
-4. **Upload.** Same as the CheerIT web app: `POST /api/submissions/upload-url`, then the file straight to storage, then a
-   `reject` call if the upload fails so the slot is released.
+**What Score does in CheerIT** (when `CHEERIT_CREATE_EVENTS=on`): every 15 seconds, for each live match it creates (if missing) the venue, competition, event group and teams in CheerIT, one event per match
+named "A vs B (ScoreIT #12)", copies team logos, and sends the ball-by-ball score to CheerIT's scorecard, repairing it when Score edits or undoes a ball.
 
-**Limits that come from CheerIT:** video up to 10 MB and the event's length limit (7 seconds by default), photos up to 2 MB
-(the card resizes them), up to 5 cheers per user per event (the event's setting), only inside the event's cheer window. A
-cheer is approved at once unless the event has CheerIT's AI check on. CheerIT refuses team cheers for events that are not a
-sports type.
+**Order**
 
-**Deploy steps**
+1. Phases 0 to 8 (identity and the four apps), with the Score branch `feat/cheerit-cheer` first (it carries the OTP fix).
+2. CheerIT's team: SSO commit `d5f3b67`, `identity_link.sql`, `IDENTITY_SERVICE_URL` and `IDENTITY_API_KEY` (key for the app `com`: `npm run issue-key -- com`, copied straight into their `.env`), storage CORS.
+3. Score backend `.env`: `CHEERIT_API_URL`, `CHEERIT_CREATE_EVENTS=on`, `CHEERIT_ORG_ID`, `SCORE_PUBLIC_URL` (and `CHEERIT_EVENT_ACCESS` if you want public). Restart with `--update-env`.
+4. Score frontend build env: `VITE_CHEERIT_API_URL`, `VITE_CHEERIT_TOKEN_LOGIN=on`; `npm install`, rebuild, publish.
+5. Test with fake team names and a phone number you own. Delete the test rows in CheerIT's admin.
 
-1. Deploy `feat/cheerit-cheer` for Score (backend and frontend).
-2. Score backend `.env`: `CHEERIT_API_URL=https://<cheerit-api-host>` (no trailing `/api`); `pm2 restart scoreit-backend --update-env`.
-3. Score frontend build env: `VITE_CHEERIT_API_URL=https://<cheerit-api-host>`; rebuild and publish. The card is hidden without it.
-4. Check the link for a live match: `curl -s http://127.0.0.1:<score-port>/api/public/matches/<id>/cheerit`. See the reasons in the
-   Troubleshooting table.
-5. Test once with a number you own (a real CheerIT OTP SMS is sent).
+**Choices to make first:** SSO or OTP once; events public (notifies every CheerIT user for every match) or private; whether Score may create events and teams in CheerIT's data.
 
-**Local demo without a real CheerIT:** `backend/dev/fake-cheerit-api.mjs` in the Score repo is a stand-in that answers
-CheerIT's existing endpoints (`FAKE_MATCH_IDS=12 PORT=4300 node backend/dev/fake-cheerit-api.mjs`; the CheerIT login code is
-`123456`). Point `CHEERIT_API_URL` and `VITE_CHEERIT_API_URL` at it. Never use it in production.
+**Limits that come from CheerIT:** video up to 10 MB (the card aims for about 2 MB), photos up to 2 MB, 5 cheers per user per event, only inside the event's cheer window; team cheers need a sports event type.
+
+**Local demo without a real CheerIT:** see `CHEERIT_PRODUCTION_GUIDE.md` §11 and `dev-tools/cheerit-integration/`. The older stand-in `backend/dev/fake-cheerit-api.mjs` in the Score repo still answers CheerIT's login, live-list and upload routes.
 
 ## Rollback
 
@@ -432,6 +419,12 @@ CheerIT's existing endpoints (`FAKE_MATCH_IDS=12 PORT=4300 node backend/dev/fake
 | Card says cheering opens when the match is live on CheerIT | `GET /api/public/matches/<id>/cheerit` shows why: `no_match` (no live CheerIT event names both teams), `ambiguous` (two or more do), `unavailable` (Score cannot read CheerIT's live list) |
 | Upload slot is given but the upload fails in the browser | CheerIT's storage bucket does not allow Score's websites (CORS, POST) |
 | Cheer refused with "team_id … not allowed for non-sports events" | The CheerIT event is not a sports event type; only the CheerIT team can change that |
+| Card shows only photo buttons | The CheerIT event was created without `allow_video_with_audio` (fixed in Score `ae336098`); for an old event set it true |
+| `POST /api/auth/cheerit-sso` 502 in the Score log | The identity service is down or `IDENTITY_*` is missing on Score; the card falls back to the CheerIT OTP login |
+| CheerIT `/api/auth/sso-login` answers 503 | `IDENTITY_SERVICE_URL` / `IDENTITY_API_KEY` are not set on CheerIT (404 = the SSO commit is not deployed) |
+| 5 live matches show fewer CheerIT events | Old behaviour (one event per pair of teams). Deploy Score `867ef9ae` or later: one event per match |
+| Score log keeps saying `background check failed` | `CHEERIT_API_URL` points somewhere that is down, or a duplicate line in `.env` overrides it (the last line wins) |
+| Team pictures broken on CheerIT-COM | COM upgrades `http://` to `https://`: CheerIT's `BASE_URL` must be an https address |
 | Camera does not open | The page must be https (or localhost) and the browser must allow the camera. The card then offers "Use camera app" |
 | Predict card has an empty body | PredictIt is not running or not reachable at `VITE_PREDICT_API_URL` |
 | `.env` has `IDENTITY_API_KEY=<…>` or `…PASTE_THE_REST_HERE` | A placeholder was pasted literally. Reissue the key and rewrite the line. |
