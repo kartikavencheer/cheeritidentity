@@ -26,8 +26,8 @@ their CheerIT account, with no second login.
 |---|---|---|
 | Identity service + one person per phone across apps | `cheerit-identity` repo (`main`) | Done, on the dev server. Production: `PRODUCTION_RUNBOOK.md` |
 | ScoreIT cheer card, event creation, logos, scores, video/sound logic | Score repo, branch `feat/cheerit-cheer` (latest `070844e5`) | Built and tested locally; **not merged** |
-| SSO route in CheerIT (`POST /api/auth/sso-login`) + identity link | CheerIT repo, commit `d5f3b67` on branch `globaldb` | Built and tested locally; **needs CheerIT's team to deploy** |
-| Name, logo and score under each logo on CheerIT-COM's card | CheerIT-COM working tree (`src/api/client.ts`, `src/components/MatchCard.tsx`), uncommitted | Local edit only |
+| SSO route in CheerIT (`POST /api/auth/sso-login`) + identity link | CheerIT repo, branch **`sso-login`** (commit `7f782fd`, only this on top of `main`; same change as `d5f3b67` on `globaldb`) | Built and tested locally; **needs CheerIT's team to deploy** |
+| Name, logo and score under each logo on CheerIT-COM's card | CheerIT-COM branch `feat/card-team-name-and-score` (`3b4be2e`) | Pushed, not merged |
 | Football, badminton | not wired in | They live in separate Score tables; the sport mapping is ready |
 
 ## 2. Decisions you must make before production
@@ -105,10 +105,10 @@ Optional, to load **existing CheerIT users into the identity in bulk** (otherwis
 ## 5. Note for CheerIT's team (copy this)
 
 > **What we need deployed** (small, additive, no existing behaviour changed):
-> 1. Take commit `d5f3b67` from `Shriya2020/CheerITWebAPI` branch `globaldb`: 5 files, 181 insertions, 0 deletions
+> 1. Use branch **`sso-login`** of `Shriya2020/CheerITWebAPI` (one commit on top of `main`: 5 files, 181 insertions, 0 deletions)
 >    (`identityClient.js`, `POST /api/auth/sso-login`, the login linking, `identity_link.sql`, 6 lines in `schema.prisma`).
 >    Do **not** merge the whole branch: it also holds an unused match mirror and a merge that includes a committed `.env`.
->    `git checkout -b sso-login origin/main && git cherry-pick d5f3b67`.
+>    (To rebuild it yourself: `git checkout -b sso-login origin/main && git cherry-pick d5f3b67`.)
 > 2. Run `identity_link.sql` with psql (nullable columns and indexes only). Then `npx prisma generate` and restart.
 > 3. Add two settings to CheerIT's `.env`: `IDENTITY_SERVICE_URL` and `IDENTITY_API_KEY` (a key for the app `com`, given to you privately).
 > 4. Storage: allow `POST` from ScoreIT's website origins (list to follow) on the cheer-upload bucket.

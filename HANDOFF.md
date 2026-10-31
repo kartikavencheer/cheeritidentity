@@ -19,7 +19,7 @@ One account per person across the CheerIT apps (keyed by phone), and cheering fo
 | **Score creates CheerIT events** (venue, competition, group, teams, one event per match) | ✅ Tested against CheerIT's own code on a local DB. Off by default (`CHEERIT_CREATE_EVENTS`) |
 | **Logos and live scores** from Score to CheerIT | ✅ Logos (uploaded, else the Score website's default picture); scores verified equal on 5 matches |
 | **SSO** Score → CheerIT (no OTP) | ✅ Works locally (identity service + CheerIT route). **CheerIT's team must deploy `d5f3b67`** |
-| CheerIT-COM card: team name and score under the logo | Local edit only, uncommitted (`src/api/client.ts`, `src/components/MatchCard.tsx`) |
+| CheerIT-COM card: team name and score under the logo | ✅ Pushed on branch `feat/card-team-name-and-score` (not merged) |
 | Football, badminton | ❌ Not wired in (separate Score tables; sport mapping ready) |
 | Real CheerIT / production | ❌ Never run against the real server |
 
@@ -37,9 +37,10 @@ Without SSO nothing in CheerIT changes and the card asks for a CheerIT OTP once.
 | `Shriya2020/ScoreIT` | `feat/cheerit-cheer` (latest `070844e5`) | cheer card, OTP fix, event creation, logos, scores, video/sound logic, full-screen camera |
 | `Shriya2020/pickleball` (GameIT) | `fix/identity-skip-data-avatar` | do not send base64 photos to identity |
 | `Shriya2020/turfitweb` | `fix/identity-skip-data-avatar` | same |
-| `Shriya2020/predictitapp` | `master` | already has the identity code |
+| `Shriya2020/predictitapp` | `master` (identity link) + `feat/identity-sso-login` (`e26063b`) | SSO login with another app's one-time token; was uncommitted before 2026-10-31 |
 | `kartikavencheer/cheeritidentity` | `main` | service, scripts, and these docs |
-| `Shriya2020/CheerITWebAPI` | `globaldb` (only commit `d5f3b67` is wanted) | SSO route and identity link |
+| `Shriya2020/CheerITWebAPI` | **`sso-login`** (`7f782fd`, clean: only the SSO commit on top of `main`); `globaldb` also pushed earlier but do not use it | SSO route and identity link |
+| `Shriya2020/CheerIT-COM` | `feat/card-team-name-and-score` (`3b4be2e`) | team name and live score on the match card |
 
 ## Where things run locally (for testing)
 
@@ -70,7 +71,7 @@ not under pm2; stop them when done. Your own CheerIT dev server (port 3002, `npm
 4. Hand `CHEERIT_PRODUCTION_GUIDE.md` §5 to CheerIT's team: SSO route, two settings, SQL, storage CORS, organization id, authentication on the create routes.
 5. First real run (guide §12): SSO, storage CORS, event creation, one real cheer with a number you own.
 6. Decide public or private events (public notifies every CheerIT user for every match).
-7. Football and badminton; tilt correction on the camera; commit the CheerIT-COM name/score edit if you want to keep it.
+7. Football and badminton; tilt correction on the camera. Not pushed on purpose: every `.env`, the two local commits on CheerIT's `globaldb` (they carry a committed `.env`), and your own uncommitted edits in CheerIT-COM, turfitweb (a stray `Text,22` typo in `TurfIT/app/(tabs)/index.tsx`) and the Score tree.
 8. Later: identity data visualisation page; login-once across apps.
 
 ## Lessons (do not repeat)
