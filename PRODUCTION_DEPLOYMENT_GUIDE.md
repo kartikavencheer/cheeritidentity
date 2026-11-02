@@ -1,110 +1,101 @@
-# CheerIT shared identity and cheering: production deployment guide
+# How to deploy: shared login and cheering for CheerIT and ScoreIT
 
-**This is the one document to follow.** It covers everything, in order: the shared identity (one person per phone number across all apps),
-connecting each app, hosting the CheerIT API with single sign-on, and the ScoreIT cheering feature. Every step names the project, the folder,
-the exact settings to put in `.env` and the exact commands. Every check says what you must see.
+**Start here.** Follow this file from top to bottom. Do not skip steps. Every step tells you:
 
-Other files in this repository are background only: `CHEERIT_PRODUCTION_GUIDE.md` (the cheer feature in depth), `PRODUCTION_RUNBOOK.md` and
-`PRODUCTION_COMMANDS.md` (earlier versions of Parts B and C), `HANDOFF.md` (status), `CONVERSATION.md` (history), `dev-tools/` (test scripts).
-If anything differs, this file is the newer one.
+- **Where** to run it (which server, which folder)
+- **Run** (the exact commands)
+- **You should see** (how to know it worked)
+- **If not** (what to do)
 
-**No secret value appears in any file in this repository. Never type a secret into chat, a ticket or Git.** Settings are named; you supply the values.
+> Tip: in VS Code press `Cmd+Shift+V` (Mac) or `Ctrl+Shift+V` to open this file as a readable page.
 
----
-
-## 0. Read this first
-
-### 0.1 The six rules (each one was learned by a real failure on the dev server)
-
-1. **Back up every database before any write.** Part B has the commands.
-2. **Use phone numbers you own for tests.** Every login test sends a real SMS.
-3. **Never paste a `<placeholder>`.** Replace it with the real value first. Pasting `<key>` into a `.env` happened twice.
-4. **Never run `prisma db push` or `prisma migrate` on an existing database.** Only `npx prisma generate`. A `db push` can drop data.
-5. **One app at a time.** Confirm login works before the next one.
-6. **Keys are shown once.** Issuing a key for an app cancels the previous key for that app. Write each key straight into that app's `.env` with the commands below; never read it aloud or paste it.
-
-Two terminal habits that avoid errors: put no `# comment` after a command on the same line, and check a `.env` for **duplicate lines** (the last one wins).
-
-### 0.2 What you are deploying
-
-```
- Viewer ── ScoreIT website ──▶ ScoreIT backend ──▶ Identity service (port 4100) ──▶ Identity database
-                 │                    │                      ▲
-                 │                    └─ every 15 s: events, teams, logos, scores ─▶ CheerIT API ──▶ CheerIT database
-                 │                                                                       ▲   │
-                 └── camera, upload ─────────────────────────────────────────────────────┘   └─▶ storage (S3)
- Other apps (GameIT, PredictIt, TurfIT, Sponsor): after every OTP login they tell the identity service who logged in.
- CheerIT: after an SSO login (and after its own OTP login) it does the same.
-```
-
-- **Identity database** (`cheeritidentity`): one row per person (`users`) and which apps they use (`user_apps`). No app data.
-- **Identity service** (Node, port 4100): the only program that touches that database. It listens on `127.0.0.1` unless you set `HOST`.
-- **Each app** keeps its own users and its own database, and gets one new **nullable** column `identity_id`. If the identity service is down, **logins still work**.
-- Until an app's `.env` has `IDENTITY_SERVICE_URL` and `IDENTITY_API_KEY`, the new code does nothing.
-
-### 0.3 Which parts you need
-
-| Part | What | Needed for |
-|---|---|---|
-| A | Security items | always, first |
-| B | Identity database and service, data sync | always |
-| C | Connect each app (Score, PredictIt, TurfIT, GameIT, Sponsor) | always |
-| D | CheerIT API with SSO (add to the live CheerIT, or host a new one) | SSO and the cheering feature |
-| E | ScoreIT cheering feature | the cheer card |
-| F | CheerIT-COM card (team name and score) | optional |
-| G | Final acceptance checks | always |
-
-### 0.4 The worksheet: collect these values before you start
-
-| Value | Your value | Example from the dev server |
-|---|---|---|
-| Backend server (SSH) | | `ec2-user@<dev-server>`, Amazon Linux 2023, pm2, nginx |
-| Database host and port | | `localhost:5432` |
-| Database admin user | | `postgres` |
-| Identity database name | `cheeritidentity` | `cheeritidentity` |
-| Score database | | `postgres` (dev) |
-| GameIT database | | `gameit` |
-| PredictIt database | | `predictit` |
-| TurfIT database | | `turfit_dev` |
-| Sponsor database (optional) | | `sponsorit` |
-| CheerIT database | | `cheeritback` (new, on the server's own Postgres) |
-| Identity service address (as seen by the apps) | | `http://127.0.0.1:4100` |
-| CheerIT API address (https, no trailing `/api`) | | `https://devcheerback.avenengage.com` |
-| ScoreIT backend and website | | `https://devscoreit.avenengage.com` |
-| CheerIT upload bucket and region | | `avencheer-s3-test`, `ap-south-1` |
-| An organization id in CheerIT (for the "ScoreIT" competitions) | | any real `org_id` from CheerIT's `Organization` table |
-| A phone number you own | | |
+**Nothing secret is written in this file.** You will type passwords and keys yourself. Never paste them into chat, tickets or Git.
 
 ---
 
-## Part A. Security items (before connecting anything)
+## 1. What you are deploying (in plain words)
 
-Do these first. Several are urgent.
+**Goal 1: one login for all apps.** A person who logs in to ScoreIT, GameIT, PredictIt or TurfIT with their phone number is stored **once**, in a new small database called the **identity database**. Each app keeps its own data and only gets one extra empty column called `identity_id`.
 
-1. **ScoreIT login fix.** Today any code logs in to Score as any phone number. The fix is in the Score branch `feat/cheerit-cheer` (and in `fix/verify-otp-on-login`). Deploy and verify it in Part C, step C1, before anything else.
-2. **Committed `.env` files.** `.env` is tracked in Git in several repositories, including **CheerIT's** (commit "env publish" on its `main`, which holds production database, AWS, SMS and JWT secrets) and the identity repository. Anything ever committed must be treated as exposed: rotate it. Then untrack the file: `git rm --cached .env`, add `.env` to `.gitignore`, commit. **Careful:** a server that pulls this commit can lose its working `.env`. On each server first run `git update-index --skip-worktree .env`, or copy the file aside and restore it after the pull.
-3. **CheerIT's create routes have no login check** (`/api/events`, `/api/team`, `/api/venues`, `/api/competition`, `/api/event-groups`, `/api/competition-team`, `/api/scorecards`). Anyone on the internet can create data. Tell CheerIT's team to add authentication. (If they do, ScoreIT will need a credential: not built yet.)
-4. **CheerIT's upload route trusts `user_id` from the request body** instead of the login. Tell CheerIT's team.
-5. **OTP logging off in production.** Score: `LOG_OTP_TO_CONSOLE=false`. PredictIt: `OTP_DEV_MODE=false`, `OTP_LOG_CODE=false`. Check GameIT and TurfIT the same way.
-6. **Sponsor `AUTH_SECRET`** must be set (otherwise it falls back to a hard-coded secret and tokens can be forged).
-7. **Rotate secrets that were pasted into chats**: database passwords, AWS keys, SMS key, JWT secrets, identity keys.
+**Goal 2: cheer from ScoreIT, save in CheerIT.** On a ScoreIT match page, a viewer records a photo or video. It is saved in CheerIT as a normal cheer, under their CheerIT account, **without asking for another login** (this is called SSO).
+
+**The pieces:**
+
+- **Identity database** `cheeritidentity`: one row per person. Holds no app data.
+- **Identity service**: a small program (port 4100) that is the only thing allowed to touch that database.
+- **The apps**: ScoreIT, GameIT, PredictIt, TurfIT (and Sponsor, optional). After every OTP login they tell the identity service who logged in. **If the service is down, logins still work.**
+- **CheerIT API**: gets one small addition so it can accept the SSO login.
+- **ScoreIT**: creates the CheerIT events, sends scores, and shows the cheer card.
+
+## 2. Words used in this file
+
+- **pm2**: the program that keeps each backend running. `pm2 restart <name>` restarts one.
+- **`.env`**: the file with an app's settings. It is in the app's folder. Each line is `NAME=value`.
+- **`<something>`**: a placeholder in angle brackets. **You must replace it with the real value.** Never type the brackets.
+- **Backend server**: the Linux server where the apps run under pm2.
+- **Dry run**: a test run that only reads and writes nothing.
+- **Key**: a password for one app to talk to the identity service. It is shown **once**.
+
+## 3. Six safety rules
+
+1. **Back up every database first.**
+2. **Test only with phone numbers you own.** Every login test sends a real SMS.
+3. **Never paste a `<placeholder>`.** Replace it first.
+4. **Never run `prisma db push` or `prisma migrate` on an existing database.** Only `npx prisma generate`. (Exception: a brand-new empty database, in Part 5.)
+5. **One app at a time.** Check login works before starting the next.
+6. **Keys are shown once.** Issuing a new key for an app cancels its old key. Write the key straight into the `.env` using the commands in this file.
+
+Two habits that prevent mistakes: do not put a `# comment` after a command on the same line, and always check a `.env` for **repeated lines** (the last one wins).
+
+## 4. Before you start: collect these values
+
+Write them down. You will need them in every part.
+
+- **Backend server:** how you log in (SSH), and the folder where apps live.
+- **Database server:** host name, port (usually `5432`), and an admin user.
+- **Database names:** ScoreIT, GameIT, PredictIt, TurfIT, (Sponsor), and CheerIT.
+- **Identity database name:** use `cheeritidentity`.
+- **CheerIT API address** (https, no `/api` at the end), for example `https://devcheerback.avenengage.com`.
+- **ScoreIT address**, for example `https://devscoreit.avenengage.com`.
+- **CheerIT upload bucket** name and its region (dev uses `ap-south-1`).
+- **An organization id** from CheerIT's `Organization` table (used to create the "ScoreIT" competitions).
+- **A phone number you own** for testing.
+
+Check the server has: Node 22 or newer (`node -v`), `pm2`, `git`, `psql`.
 
 ---
 
-## Part B. Identity database, service and data sync
+# PART 1. Security items (do these first)
 
-Run on the backend server. Needs Node 22 or newer (`node -v`).
+Tick each one.
 
-### B1. Back up every app database
+- [ ] **ScoreIT login fix.** Today any code logs in to ScoreIT as any phone number. The fix is in branch `feat/cheerit-cheer`. You verify it in Part 3, step 3.4. This is the most urgent item.
+- [ ] **Committed `.env` files.** Several repositories contain a `.env` in Git, including CheerIT's (commit "env publish", with real production secrets). Treat everything in those files as leaked: **change the secrets**, then stop tracking the file with `git rm --cached .env` and add `.env` to `.gitignore`.
+  - **Careful:** a server that pulls that change can lose its own `.env`. On each server first run `git update-index --skip-worktree .env`, or copy the file aside and put it back after the pull.
+- [ ] **CheerIT has open routes.** Anyone on the internet can create events, teams and venues in CheerIT. Ask CheerIT's team to add a login check.
+- [ ] **CheerIT upload route** trusts the `user_id` sent by the browser. Tell CheerIT's team.
+- [ ] **Turn off OTP logging in production.** ScoreIT: `LOG_OTP_TO_CONSOLE=false`. PredictIt: `OTP_DEV_MODE=false` and `OTP_LOG_CODE=false`. Check GameIT and TurfIT the same way.
+- [ ] **Sponsor:** make sure `AUTH_SECRET` is set. Without it Sponsor uses a built-in secret and logins can be forged.
+- [ ] **Change any secret that was ever pasted into a chat:** database passwords, AWS keys, SMS key, JWT secrets, identity keys.
+
+---
+
+# PART 2. Identity database and service
+
+**Where:** the backend server.
+
+## Step 2.1: Back up every database
 
 ```bash
 mkdir -p ~/identity-backups
 for db in <score_db> <gameit_db> <predictit_db> <turfit_db> <cheerit_db>; do PGPASSWORD='<admin-password>' pg_dump -h <db-host> -U <admin-user> -Fc "$db" -f ~/identity-backups/$db-$(date +%Y%m%d-%H%M).dump; done
 ls -la ~/identity-backups
 ```
-Every file must be non-empty. Restore if ever needed: `pg_restore --clean -h <db-host> -U <admin-user> -d <db> <file>`.
 
-### B2. Get the code and create the identity database
+**You should see:** one file per database, none empty.
+**To restore later:** `pg_restore --clean -h <db-host> -U <admin-user> -d <db> <file>`
+
+## Step 2.2: Get the identity code and create its database
 
 ```bash
 git clone https://github.com/kartikavencheer/cheeritidentity.git
@@ -117,14 +108,13 @@ psql -h <db-host> -U <admin-user> -d cheeritidentity -f sql/001_identity_schema.
 psql -h <db-host> -U <admin-user> -d cheeritidentity -f sql/002_app_clients.sql
 psql -h <db-host> -U <admin-user> -d cheeritidentity -c "\dt"
 ```
-`\dt` must list exactly: `app_clients`, `migration_log`, `migration_runs`, `user_apps`, `users`. Do not run any `003_*` file.
-Recommended: create a dedicated database user for the identity database and read-only users for reading the app databases (SQL in `PRODUCTION_RUNBOOK.md` Phase 2).
 
-Note: this repository's own `.env` is tracked in Git (local development addresses only). On a server, create your own `.env` and run `git update-index --skip-worktree .env` so a later `git pull` does not replace it.
+**You should see:** exactly these 5 tables: `app_clients`, `migration_log`, `migration_runs`, `user_apps`, `users`.
+**If not:** do not continue. Do not run any file named `003_*`.
 
-### B3. Write `cheeritidentity/.env`
+## Step 2.3: Write the identity `.env`
 
-Open it with an editor (`nano .env`) so passwords do not enter your shell history. Leave a line empty to skip that app.
+**Where:** the `cheeritidentity` folder. Open it with `nano .env` so passwords are not saved in your shell history. Leave a line empty to skip that app.
 
 ```
 IDENTITY_URL=postgresql://<identity-user>:<pw>@<db-host>:5432/cheeritidentity
@@ -135,35 +125,44 @@ SRC_BOOKING_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<gameit_db>
 SRC_PREDICTIT_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<predictit_db>
 SRC_TURFIT_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<turfit_db>
 SRC_SPONSOR_URL=
-SRC_COM_URL=postgresql://<readonly-user>:<pw>@<db-host>:5432/<cheerit_db>
+SRC_COM_URL=
 
 LINK_SCORE_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<score_db>
 LINK_BOOKING_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<gameit_db>
 LINK_PREDICTIT_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<predictit_db>
 LINK_TURFIT_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<turfit_db>
 LINK_SPONSOR_URL=
-LINK_COM_URL=postgresql://<owner-user>:<pw>@<db-host>:5432/<cheerit_db>
+LINK_COM_URL=
 ```
-- `SRC_*` are **read-only** (used by the dry run and by apply). `LINK_*` are the **owner** of each app database (used only to add and fill `identity_id`).
-- `IDENTITY_URL` must be a **different** database from every `SRC_*`; the scripts refuse to write into the one they read.
-- Add `?sslmode=require` to a URL if that database needs SSL. Every command below uses `node --env-file=.env`; without it the scripts print `Skipped` for every app.
-- `SRC_COM_URL` / `LINK_COM_URL` are the CheerIT database. Leave them empty until Part D is done and CheerIT's database has been backed up.
 
-### B4. Dry run (reads only, writes nothing)
+What the lines mean:
+
+- `SRC_*` = **read-only** login to each app's database (used to read users).
+- `LINK_*` = the **owner** login of each app's database (used only to add and fill the `identity_id` column).
+- `*_COM_*` = the CheerIT database. **Leave empty until Part 4 is done** and CheerIT's database has been backed up.
+- `IDENTITY_URL` must be a **different** database from every `SRC_*`.
+- Add `?sslmode=require` to a URL if that database needs SSL.
+
+Note: the `.env` in this repository is tracked by Git and holds local development addresses. On a server, create your own and run `git update-index --skip-worktree .env`.
+
+## Step 2.4: Dry run (reads only)
 
 ```bash
 node --env-file=.env src/dry-run.ts
 ```
-You must see one `Reading <app> from … (read-only)` line per configured app and then `N records -> M people (K in several apps, R rejected phones).` with **no `Skipped`** for an app you configured.
-Open the report folder it names (`out/<timestamp>/`). On the dev server it was 42 records to 16 people.
-- `name_conflict` warnings: harmless (spelling differences).
-- `same_app_multiple_roles`: by design (one person with two roles).
-- `invalid_phone` rows (placeholders such as `9999999999`): listed and left out; those users keep working.
-- An app showing 0 records means its `SRC_*` database or table is wrong. Fix it before going on.
 
-**Stop here and have the numbers signed off.**
+**You should see:** one line `Reading <app> from … (read-only)` for each app you configured, then `N records -> M people`. On the dev server it was 42 records to 16 people.
+**If not:** if you see `Skipped` for an app, its `SRC_*` line is wrong or empty. If an app shows 0 records, its database or table is wrong. Fix it first.
 
-### B5. Write the people, then link each app
+Open the report folder it prints (`out/<time>/`). These notes are normal:
+
+- `name_conflict`: harmless spelling differences.
+- `same_app_multiple_roles`: by design (one person, two roles).
+- `invalid_phone`: placeholder numbers such as `9999999999` are left out. Those users keep working.
+
+**Stop here and get the numbers approved before Step 2.5.**
+
+## Step 2.5: Write the people
 
 ```bash
 node --env-file=.env src/apply.ts
@@ -171,7 +170,13 @@ node --env-file=.env src/apply.ts --apply
 node --env-file=.env src/apply.ts --verify-only
 node --env-file=.env src/apply.ts --apply
 ```
-After the first `--apply` you must see `Written: N new people … 0 ownership clashes` and six `PASS` lines. The second `--apply` must write **0 new people and 0 new memberships**. Any `FAIL` or ownership clash: stop and investigate.
+
+**You should see:** after the first `--apply`: `Written: N new people` and six `PASS` lines. After the **second** `--apply`: `0 new people` and `0 new memberships`.
+**If not:** any `FAIL` or "ownership clash": stop and investigate.
+
+## Step 2.6: Link each app database
+
+This is the first write into the app databases. It adds the empty column `identity_id` and fills it.
 
 ```bash
 node --env-file=.env src/link.ts
@@ -179,101 +184,155 @@ node --env-file=.env src/link.ts --apply
 node --env-file=.env src/link.ts --verify-only
 node --env-file=.env src/link.ts --apply
 ```
-Per app you must see `Written: column ensured, N rows linked.` and `Verification PASS … 0 mismatched, 0 unknown`. The second `--apply` links 0 new rows. `NOT IN IDENTITY: 1` is normal for an app that has a placeholder-phone user (or one new signup: re-run `apply.ts`). If an app already holds a different identity on a row, the script refuses: do not override, investigate.
-The added column is nullable and harmless to the apps even before their code is updated.
 
-### B6. Start the identity service and keep it running
+**You should see:** for each app `Written: column ensured, N rows linked` and `Verification PASS … 0 mismatched`. The second `--apply` links 0 new rows.
+**If not:** `NOT IN IDENTITY: 1` is normal for a placeholder-phone user or one new signup (run `apply.ts` again). If an app refuses because a row already holds a different identity, do not override it. Investigate.
+
+## Step 2.7: Start the identity service
 
 ```bash
-cd cheeritidentity
+cd <path>/cheeritidentity
 pm2 start "npm start" --name identity
 pm2 save
 curl http://127.0.0.1:4100/health
 ```
-The answer must be `{"ok":true}`. Make pm2 survive a reboot **once per server**: `systemctl is-enabled pm2-ec2-user` (replace the user). If it says `enabled`, do nothing. If not, run `pm2 startup` and execute the line it prints.
 
-**Topology:** if the identity service and every backend that uses it are on the **same** server, use `IDENTITY_SERVICE_URL=http://127.0.0.1:4100` (safest). If a backend, **including the CheerIT API**, runs on **another** server, start the service with `HOST=<private-ip>` (or `0.0.0.0`) and allow port 4100 **only** from those servers in the firewall or security group. Never expose it to the internet.
+**You should see:** `{"ok":true}`
 
-### B7. Issue a key and write it straight into the app's `.env` (the pattern used in every Part C step)
+Make pm2 survive a reboot **once per server**. First check: `systemctl is-enabled pm2-<your-user>`. If it says `enabled`, do nothing. If not, run `pm2 startup` and then run the line it prints.
+
+**Where the service listens:**
+
+- Everything on **one server:** use `IDENTITY_SERVICE_URL=http://127.0.0.1:4100`. This is the safest.
+- A backend (including the CheerIT API) on **another server:** start the service with `HOST=<private-ip>` and open port 4100 **only** to those servers. Never to the internet.
+
+---
+
+# PART 3. Connect each app (one at a time)
+
+**Order:** ScoreIT first (it has the security fix), then PredictIt, TurfIT, GameIT. Sponsor last, optional.
+
+## 3.1 The apps
+
+**ScoreIT**
+- Repository: `Shriya2020/ScoreIT`
+- Branch: `feat/cheerit-cheer` (has the login fix and the cheer feature)
+- Folder: `ScoreIT/backend` (the website is `ScoreIT/frontend`)
+- pm2 name: `scoreit-backend`
+- Key name: `score`
+
+**PredictIt**
+- Repository: `Shriya2020/predictitapp`
+- Branch: `master`
+- Folder: `predictitapp/backend`
+- pm2 name: `predictit-backend`
+- Key name: `predictit`
+
+**TurfIT**
+- Repository: `Shriya2020/turfitweb`
+- Branch: `master` plus `fix/identity-skip-data-avatar`
+- Folder: `turfitweb/Backend`
+- pm2 name: `turfitweb-backend`
+- Key name: `turfit`
+
+**GameIT**
+- Repository: `Shriya2020/pickleball`
+- Branch: `main` plus `fix/identity-skip-data-avatar`
+- Folder: `pickleball/backend`
+- pm2 name: `pickleball-backend`
+- Key name: `booking`
+
+**Sponsor (optional)**
+- Repository: `Shriya2020/CheerIT-Sponsor`
+- Branch: `stackchnage` (spelled like this)
+- Folder: `CheerIT-Sponsor/backend`
+- pm2 name: `cheerit-sponsor-backend`
+- Key name: `sponsor`
+
+Production folders and names can differ. Find an app's folder with: `pm2 describe <pm2-name> | grep "exec cwd"`.
+
+The avatar fix stops GameIT and TurfIT from sending big base64 profile photos to the identity service (it accepts 10 KB, their photos are up to 300 KB, which caused an HTTP 500).
+
+## 3.2 The same recipe for every app
+
+**Step A. Deploy the app's code** (merge its branch the way your team normally does).
+
+**Step B. Install**
+
+```bash
+cd <backend-folder>
+npm install
+npx prisma generate
+```
+
+Only `generate`. Never `migrate` or `db push`. Sponsor has no Prisma: skip that last line.
+
+**Step C. Issue a key and write it into the app's `.env`**
+
+Replace `<key-name>` and `<backend-folder>` with the app's values. The commands put the key in the file without ever showing it.
 
 ```bash
 cd <path>/cheeritidentity
 KEY=$(npm run -s issue-key -- <key-name> | grep -o 'cid_<key-name>_[A-Za-z0-9_-]*')
 echo "key length: ${#KEY}"
-cd <backend-dir>
+cd <backend-folder>
 grep -c '^IDENTITY_' .env
 echo "" >> .env
 echo "IDENTITY_SERVICE_URL=http://127.0.0.1:4100" >> .env
 echo "IDENTITY_API_KEY=$KEY" >> .env
 unset KEY
 ```
-- The key length must be about **50 to 57**. `0` means it failed: stop.
-- The `grep -c` must print **`0`** before you add the lines (so they are not added twice). If an `IDENTITY_` line already exists, replace it with `sed -i "s|^IDENTITY_API_KEY=.*|IDENTITY_API_KEY=$KEY|" .env` instead of appending.
-- Key names: `score`, `booking` (GameIT), `predictit`, `turfit`, `sponsor`, `com` (the CheerIT API).
 
----
+**You should see:** key length about **50 to 57**, and the `grep -c` line prints **`0`**.
+**If not:** a length of `0` means the key command failed: stop and read its error. If `grep -c` prints more than 0, the lines already exist. Do not add them again. Replace instead: `sed -i "s|^IDENTITY_API_KEY=.*|IDENTITY_API_KEY=$KEY|" .env`.
 
-## Part C. Connect each app, one at a time
+**Step D. Restart**
 
-Order: **Score first** (security fix), then PredictIt, TurfIT, GameIT. Sponsor last and optional.
-
-| App | Repo | Branch to deploy | Backend folder | pm2 name | Key name | New column |
-|---|---|---|---|---|---|---|
-| Score | `Shriya2020/ScoreIT` | `feat/cheerit-cheer` (includes the login fix and the cheer feature) | `ScoreIT/backend` | `scoreit-backend` | `score` | `si_user.si_user_identityid` |
-| PredictIt | `Shriya2020/predictitapp` | `master` | `predictitapp/backend` | `predictit-backend` | `predictit` | `users.identity_id` |
-| TurfIT | `Shriya2020/turfitweb` | `master` + `fix/identity-skip-data-avatar` | `turfitweb/Backend` | `turfitweb-backend` | `turfit` | `"User"."identityId"` |
-| GameIT | `Shriya2020/pickleball` | `main` + `fix/identity-skip-data-avatar` | `pickleball/backend` | `pickleball-backend` | `booking` | `users.identity_id` |
-| Sponsor | `Shriya2020/CheerIT-Sponsor` | `stackchnage` | `CheerIT-Sponsor/backend` | `cheerit-sponsor-backend` | `sponsor` | `sp_sponsor_auth_users.identity_id` |
-
-Production folders and process names may differ: find an app's folder with `pm2 describe <pm2-name> | grep "exec cwd"`.
-The avatar fix stops GameIT and TurfIT sending base64 profile photos to the identity service (it accepts 10 KB; their photos are up to 300 KB, which made the call fail with HTTP 500).
-
-**The same four steps for every app** (after merging its branch):
-
-```bash
-cd <backend-dir>
-npm install
-npx prisma generate
-```
-then **B7** (issue the key, add the two lines), then:
 ```bash
 pm2 restart <pm2-name> --update-env
 pm2 logs <pm2-name> --lines 30 --nostream
 ```
-`npx prisma generate` only (never `migrate` or `db push`). Sponsor has no Prisma: skip that line.
 
-**After each app, test:** log in on that app's website with your own number (real OTP), then check:
+**Step E. Test with your own phone number**
+
+1. Log in on that app's website (a real OTP SMS is sent).
+2. Check it was recorded:
+
 ```bash
 PGPASSWORD='<pw>' psql -h <db-host> -U <identity-user> -d cheeritidentity -c "select u.phone, a.app_key, a.last_seen_at from users u join user_apps a on a.user_id=u.id where u.phone='+91<your10digits>' order by a.last_seen_at desc nulls last;"
 pm2 logs <pm2-name> --lines 100 --nostream | grep -i identity
 ```
-The app you used must show a `last_seen_at` from the last minute or so. The log grep should print nothing. Do not filter the query by `app_key`: a filtered query hides the other apps. Do not move on until the time is fresh.
 
-### C1. Score: verify the login fix first
+**You should see:** the app you used has a `last_seen_at` from the last minute. The `grep` prints nothing.
+**If not:** do not move to the next app until it is fresh. Do not filter the query by `app_key` (that hides the other apps).
 
-`<port>` is Score's `PORT`. An SMS is sent.
+## 3.3 ScoreIT only: check the login fix first
+
+An SMS is sent. `<port>` is ScoreIT's `PORT`.
+
 ```bash
 curl -s -X POST localhost:<port>/api/auth/send-otp -H 'content-type: application/json' -d '{"phoneNumber":"<your10digits>"}'
 curl -s -X POST localhost:<port>/api/auth/otp-verify -H 'content-type: application/json' -d '{"phoneNumber":"<your10digits>","otp":"000000"}'
 ```
-The second answer **must** be `{"error":"OTP invalid"}` (or "invalid or expired") with **no `accessToken`**. If it returns a token, the fix is not deployed: do not continue. Then verify the real code from the SMS returns a token.
-Score's frontend is rebuilt in Part E; the identity step needs only the backend.
 
-### C2. PredictIt
-Branch `master` already has the identity code. Backend settings besides identity: `SCOREIT_API_URL` must be Score's API address (PredictIt mirrors Score matches). OTP settings off in production (Part A, step 5).
-A newer, **unreviewed** branch `feat/identity-sso-login` (SSO login with another app's one-time token) exists in the same repository. Do not deploy it unless you want login-once across apps and have tested it.
+**You should see:** the second answer is `{"error":"OTP invalid"}` (or "invalid or expired") and has **no `accessToken`**.
+**If not:** if you get a token, the fix is not deployed. **Stop. Do not continue with ScoreIT.**
+Then check that the real code from the SMS does return a token.
 
-### C3. TurfIT and C4. GameIT
-Merge the identity code and `fix/identity-skip-data-avatar`, then the four steps above. Check their OTP / demo-login settings as in Part A.
+## 3.4 Notes for each app
 
-### C5. Sponsor (optional, left out on dev because it had 0 users)
-1. Confirm `AUTH_SECRET` is set. 2. Confirm its database has `sp_sponsor_auth_users.mobile_number` (migrations 022, 023); apply `sql/sponsor_portal/024_identity_link.sql` or let `link.ts` add the column. 3. Set `SRC_SPONSOR_URL` and `LINK_SPONSOR_URL`, repeat B4 and B5 (repeatable), then the four steps with key `sponsor`. Only OTP logins link; email-and-password logins do not.
+- **PredictIt:** also set `SCOREIT_API_URL` to ScoreIT's API address (PredictIt copies ScoreIT matches). A newer, **untested** branch `feat/identity-sso-login` exists. Do not deploy it unless you want login-once across apps and have tested it.
+- **TurfIT and GameIT:** merge the identity code and `fix/identity-skip-data-avatar`, then follow the recipe.
+- **Sponsor (optional):** make sure `AUTH_SECRET` is set; make sure its database has `sp_sponsor_auth_users.mobile_number`; fill `SRC_SPONSOR_URL` and `LINK_SPONSOR_URL`; repeat Steps 2.4 to 2.6; then the recipe with key `sponsor`. Only OTP logins link, email and password logins do not.
 
-### C6. Service-down test (once, after all apps)
+## 3.5 After all apps: the service-down test (once)
+
 ```bash
 pm2 stop identity
 ```
-Log in on one app: it must still work, and its log shows `[Identity] linking … failed`. Then:
+
+Log in on one app. **It must still work.** Its log shows `[Identity] linking … failed`. Then:
+
 ```bash
 pm2 start identity
 curl http://127.0.0.1:4100/health
@@ -281,73 +340,116 @@ curl http://127.0.0.1:4100/health
 
 ---
 
-## Part D. The CheerIT API: single sign-on and identity
+# PART 4. The CheerIT API and SSO
 
-The CheerIT API is the repository `Shriya2020/CheerITWebAPI` (Node, Express, Prisma, PostgreSQL). **Two situations:**
+The CheerIT API is the repository `Shriya2020/CheerITWebAPI` (Node, Prisma, PostgreSQL).
 
-- **D1. CheerIT is already live in production:** add the SSO commit and two settings. This is the production task.
-- **D2. You must host a new copy** (as was done for the dev server): follow D2 completely, then D1's SSO steps.
+**Pick your situation:**
 
-### D0. Which code
-The SSO change is **one commit**: `d5f3b67` (5 files, 181 added lines, 0 deleted): `src/utils/identityClient.js`, `POST /api/auth/sso-login`, identity linking after login, `identity_link.sql`, 6 lines in `prisma/schema.prisma`.
-- Cleanest: branch **`sso-login`** (that one commit on top of `main`). In it the project sits in the folder `CheerITWebAPIV4/`.
-- Dev server currently runs branch **`globaldb`**, where the project sits at the **repository root** (no `CheerITWebAPIV4`). `globaldb` also contains an unused match mirror (it stays off unless its settings exist). Use whichever your team agrees; the steps below say "project folder" for the folder that holds `package.json` and `src`.
-- Do **not** merge `globaldb` blindly: it includes a commit with a committed `.env` and a local-only database address. Check `.env` after any checkout (D1.3 / D2.4).
+- **Situation 1:** CheerIT is **already live** and you only add SSO. This is the usual production job. Go to **4.1**.
+- **Situation 2:** you must **host a new copy** of the CheerIT API (this is how the dev server was built). Go to **4.2**, and then do 4.1 steps 3 to 7.
 
-### D1. Add SSO to the CheerIT that is already running
+## 4.0 Which code to use
 
-1. Deploy the branch to the server in your normal way.
-2. In the project folder:
-   ```bash
-   npm install
-   psql "postgresql://<owner>@<db-host>:5432/<cheerit_db>" -f identity_link.sql
-   npx prisma generate
-   ```
-   `identity_link.sql` adds only nullable columns and indexes (`User.identity_id`, `Event.external_source/external_id`) and is safe to repeat. **Never** `prisma migrate` or `db push`. Take the CheerIT database backup first (B1).
-3. Put the two settings in CheerIT's `.env`, using B7 with key name **`com`**:
-   `IDENTITY_SERVICE_URL=http://127.0.0.1:4100` (same server) or the identity service's private address (another server), and `IDENTITY_API_KEY`.
-4. Restart: `pm2 restart <cheerit-pm2-name> --update-env`.
-5. **Check** with a deliberately wrong token:
-   ```bash
-   curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<cheerit-api>/api/auth/sso-login -H 'content-type: application/json' -d '{"token":"wrong"}'
-   ```
-   **401** = working. **503** = the two settings are missing or not loaded. **404** = the SSO commit is not deployed.
-6. **What SSO does:** ScoreIT proves who the viewer is; the identity service issues a 5-minute one-time token; CheerIT swaps it for a normal web session. If the person has no CheerIT user (found by identity link, then by phone) **one is created** (`full_name` from the identity, `gender: OTHER`). Blocked users get 403. Confirm with CheerIT's team that creating accounts this way is acceptable.
-7. Sync the existing CheerIT users into the identity: fill `SRC_COM_URL` and `LINK_COM_URL` in the identity `.env` (B3), then repeat **B4 and B5** (`com` appears as another app). Optional: users also get linked at their first login.
+The SSO change is **one commit**: `d5f3b67` (5 files, 181 lines added, nothing removed). It adds the SSO route and links users to the identity.
 
-### D2. Host a new CheerIT API (what was done for `https://devcheerback.avenengage.com`)
+- Cleanest choice: branch **`sso-login`** (that one commit on top of `main`). The project is in the folder `CheerITWebAPIV4/`.
+- The dev server currently uses branch **`globaldb`**. There, the project is at the **top of the repository** (no `CheerITWebAPIV4` folder).
+- **Do not blindly merge `globaldb`:** it contains a commit with a committed `.env`. Check the `.env` after any checkout.
 
-Server: Amazon Linux 2023, user `ec2-user`, nginx, pm2, Node 22+ (24 worked). Replace `<domain>`, `<port>`, `<project-dir>`.
+Below, "project folder" means the folder that contains `package.json` and `src`.
 
-**D2.1 Prepare.** DNS: an A record for `<domain>` must point at the server (`dig +short <domain>` shows its public IP). Free port: `ss -ltnp | grep -E ':(3000|3001|3002|3003|4100)'`. **Redis is required** even though `REDIS_ENABLED=false`: CheerIT waits for Redis at start and never listens without it.
+## 4.1 Situation 1: add SSO to the CheerIT that is already running
+
+**Step 1. Back up** CheerIT's database (Step 2.1).
+
+**Step 2. Deploy the branch and install**
+
+```bash
+cd <project-folder>
+npm install
+psql "postgresql://<owner>@<db-host>:5432/<cheerit_db>" -f identity_link.sql
+npx prisma generate
+```
+
+`identity_link.sql` only adds empty columns. It is safe to repeat. **Never** use `prisma migrate` or `db push` here.
+
+**Step 3. Put the two SSO settings in CheerIT's `.env`**
+
+Use Step C of the recipe in section 3.2 with **key name `com`** and `<backend-folder>` = the CheerIT project folder. Use the identity service's private address if CheerIT runs on another server.
+
+**Step 4. Restart**
+
+```bash
+pm2 restart <cheerit-pm2-name> --update-env
+```
+
+**Step 5. Check SSO** (this uses a deliberately wrong token)
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<cheerit-api>/api/auth/sso-login -H 'content-type: application/json' -d '{"token":"wrong"}'
+```
+
+**You should see:** `401`.
+**If not:** `503` means the two settings are missing or not loaded. `404` means the SSO commit is not deployed.
+
+**Step 6. What SSO does** (tell CheerIT's team)
+
+ScoreIT proves who the viewer is. The identity service gives a one-time token (valid 5 minutes). CheerIT swaps it for a normal web session. **If the person has no CheerIT account, one is created** (name from the identity, gender `OTHER`). Blocked users get 403. Ask CheerIT's team to confirm that creating accounts this way is acceptable.
+
+**Step 7. Sync CheerIT's existing users into the identity**
+
+Fill `SRC_COM_URL` and `LINK_COM_URL` in the identity `.env` (Step 2.3), then repeat Steps 2.4, 2.5 and 2.6. CheerIT now appears as another app. Optional: users also get linked at their first SSO login.
+
+## 4.2 Situation 2: host a new CheerIT API (the dev-server method)
+
+Server: Amazon Linux 2023, user `ec2-user`, nginx, pm2, Node 22 or newer. Replace `<domain>`, `<port>`, `<project-folder>`.
+
+### 4.2.1 Prepare
+
+- **DNS:** an A record for `<domain>` must point to the server. Check: `dig +short <domain>` shows the server's public IP.
+- **Free port:** `ss -ltnp | grep -E ':(3000|3001|3002|3003|4100)'` and pick one that is not listed, for example `3002`.
+- **Redis is required.** CheerIT waits for Redis when it starts, even though `REDIS_ENABLED=false`. Without it, the app never starts listening.
+
 ```bash
 sudo dnf install -y redis6
 sudo systemctl enable --now redis6
 redis6-cli ping
 ```
-The answer must be `PONG`. (Amazon Linux 2: `sudo amazon-linux-extras install -y redis6`, service `redis`.)
 
-**D2.2 Code.**
+**You should see:** `PONG`. (Amazon Linux 2: `sudo amazon-linux-extras install -y redis6`, service name `redis`.)
+
+### 4.2.2 Get the code
+
 ```bash
 cd ~/websites
 git clone https://github.com/Shriya2020/CheerITWebAPI.git
 cd CheerITWebAPI
 git checkout <branch>
-cd <project-dir>
+cd <project-folder>
 git update-index --skip-worktree .env
 npm install
 ```
-`git update-index --skip-worktree .env` keeps later pulls from replacing the server's `.env`. If it says `Unable to mark file`, the `.env` path is wrong for this branch (the project folder is the repository root on `globaldb`, `CheerITWebAPIV4/` on `sso-login`).
 
-**D2.3 Database.** Use the server's own Postgres. Create a **dedicated** database (and optionally a dedicated user; never change the password of a shared superuser):
+`skip-worktree` stops later `git pull`s from replacing the server's `.env`.
+**If not:** if it says `Unable to mark file`, the path to `.env` is wrong for this branch. On `globaldb` the project folder is the repository top, on `sso-login` it is `CheerITWebAPIV4/`.
+
+### 4.2.3 Create the database
+
+Use the server's own Postgres. Create a **separate** database for CheerIT. Never change the password of a shared admin user.
+
 ```bash
 createdb -h localhost -p 5432 -U postgres cheeritback
 ```
-Create the tables from CheerIT's schema (the one place `prisma db push` is correct: a brand-new, empty database):
+
+Create the tables from CheerIT's schema. This is the **one place** `prisma db push` is right: a **brand-new empty** database. Make sure `DATABASE_URL` points at the **new** database first.
+
 ```bash
 npx prisma db push
 ```
-(Run it with `DATABASE_URL` pointing at the new database, never at an existing one.) An empty CheerIT has **no reference rows**; it needs these. **Run this only on a new empty database. Never on production**, which already has real rows:
+
+A new empty CheerIT has no reference rows and cannot work without them. Load them **only on a new empty database, never on production** (production already has real rows):
+
 ```bash
 psql -h localhost -p 5432 -U postgres -d cheeritback <<'SQL'
 insert into "EventStatus"(eventstatus_id, code, name) overriding system value values
@@ -369,34 +471,75 @@ insert into "SMSTemplate"(sms_template_id, code, message, is_active, updated_at)
   on conflict (code) do nothing;
 SQL
 ```
-Check: `psql … -c 'select (select count(*) from "EventStatus"), (select count(*) from "EventType"), (select count(*) from "Organization"), (select count(*) from "SMSSetting"), (select count(*) from "SMSTemplate")'` shows 4, 3, 1, 1, 1. (The OTP text must match the text registered with the SMS provider.) To start with real data instead, restore a `pg_dump` of an existing CheerIT database into the new one.
-Then: `psql … -f identity_link.sql` and `npx prisma generate`.
 
-**D2.4 Settings.** The `.env` that comes from Git may hold **another environment's settings, including production**. Edit it **before the first start**, with an editor for lines that hold passwords (`nano +4 .env`):
+Check the rows are there:
 
-| Setting | Value |
-|---|---|
-| `DATABASE_URL` | `postgresql://<user>:<pw>@localhost:5432/cheeritback?schema=public`. **Check it never points at the production database.** Verify without showing the password: `grep '^DATABASE_URL=' .env \| sed -E 's#(://[^:/@]+):[^@]*@#\1:<pw>@#'` |
-| `PORT` | the free port, e.g. `3002` |
-| `BASE_URL`, `APP_PUBLIC_URL`, `SQUAD_INVITE_BASE_URL` | `https://<domain>` |
-| `WEB_BASE_URL` | the CheerIT website address for this environment |
-| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | **new** random values: `sed -i "s\|^JWT_ACCESS_SECRET=.*\|JWT_ACCESS_SECRET=$(openssl rand -hex 48)\|" .env` (and the same for `JWT_REFRESH_SECRET`). Never reuse another environment's |
-| `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` | via B7 with key name `com` (replace any value that came from Git) |
-| `REDIS_URL` | `redis://127.0.0.1:6379` |
-| `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the bucket for cheer uploads and **fresh** keys allowed to write to it. **Do not set `AWS_ENDPOINT_URL_S3`** |
-| `SMS_AUTH_KEY` and the other `SMS_*` | as for production SMS |
-| `APPLE_REVIEW_ENABLED` | `false` in production (it is a fixed-code login for one number) |
+```bash
+psql -h localhost -p 5432 -U postgres -d cheeritback -c 'select (select count(*) from "EventStatus") as statuses, (select count(*) from "EventType") as types, (select count(*) from "Organization") as orgs, (select count(*) from "SMSSetting") as sms, (select count(*) from "SMSTemplate") as templates'
+```
 
-**D2.5 Start.**
+**You should see:** `4, 3, 1, 1, 1`.
+The OTP text must match the text registered with the SMS provider. If you want real data instead, restore a `pg_dump` of an existing CheerIT database into the new one.
+
+Then:
+
+```bash
+psql -h localhost -p 5432 -U postgres -d cheeritback -f identity_link.sql
+npx prisma generate
+```
+
+### 4.2.4 Edit CheerIT's `.env` **before the first start**
+
+The `.env` that comes from Git may hold another environment's settings, **including production**. Open it with `nano .env` for any line with a password. Check these lines one by one:
+
+- `DATABASE_URL` = `postgresql://<user>:<pw>@localhost:5432/cheeritback?schema=public`. **It must never point at the production database.** Check without showing the password: `grep '^DATABASE_URL=' .env | sed -E 's#(://[^:/@]+):[^@]*@#\1:<pw>@#'`
+- `PORT` = the free port, for example `3002`
+- `BASE_URL`, `APP_PUBLIC_URL`, `SQUAD_INVITE_BASE_URL` = `https://<domain>`
+- `WEB_BASE_URL` = the CheerIT website address for this environment
+- `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` = **new random values**, never another environment's. Create them without showing them:
+
+```bash
+sed -i "s|^JWT_ACCESS_SECRET=.*|JWT_ACCESS_SECRET=$(openssl rand -hex 48)|" .env
+sed -i "s|^JWT_REFRESH_SECRET=.*|JWT_REFRESH_SECRET=$(openssl rand -hex 48)|" .env
+```
+
+- `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` = set with the recipe Step C using key name `com` (replace any value that came from Git)
+- `REDIS_URL` = `redis://127.0.0.1:6379`
+- `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` = the cheer upload bucket and **fresh** keys that may write to it. **Do not set `AWS_ENDPOINT_URL_S3`** (that is only for local testing).
+- `SMS_AUTH_KEY` and the other `SMS_*` lines = the SMS provider's values
+- `APPLE_REVIEW_ENABLED` = `false` in production (it is a fixed-code login for one number)
+
+### 4.2.5 Start it
+
 ```bash
 pm2 start src/server.js --name <cheerit-pm2-name>
 pm2 save
 pm2 logs <cheerit-pm2-name> --lines 30 --nostream
 ```
-You must see `Prisma connected successfully` and `Server running on http://localhost:<port>`. If it stops after the Prisma line, Redis is not reachable. Then `curl -s http://127.0.0.1:<port>/api/events/mobile/live` returns `{"success":true,…}`.
-Optional: the moderation worker `src/worker/Worker.js` (SQS) is needed only for events with CheerIT's AI check on: `pm2 start src/worker/Worker.js --name <cheerit-pm2-name>-worker`.
 
-**D2.6 nginx** (`sudo nano /etc/nginx/conf.d/<domain>.conf`):
+**You should see:** `Prisma connected successfully` and then `Server running on http://localhost:<port>`.
+**If not:** if it stops after the Prisma line, Redis is not running (4.2.1).
+
+Check it answers:
+
+```bash
+curl -s http://127.0.0.1:<port>/api/events/mobile/live
+```
+
+**You should see:** `{"success":true,…`
+
+Optional: the moderation worker `src/worker/Worker.js` is only needed for events that use CheerIT's AI check: `pm2 start src/worker/Worker.js --name <cheerit-pm2-name>-worker`.
+
+### 4.2.6 nginx (the web address)
+
+Create the file:
+
+```bash
+sudo nano /etc/nginx/conf.d/<domain>.conf
+```
+
+Paste this, replacing `<domain>` and `<port>`, then save (Ctrl+O, Enter, Ctrl+X):
+
 ```nginx
 server {
     listen 80;
@@ -413,24 +556,35 @@ server {
     }
 }
 ```
+
 ```bash
 sudo nginx -t
 sudo systemctl reload nginx
 curl -s http://<domain>/api/events/mobile/live | head -c 150
 ```
-`nginx -t` must say the syntax is ok. If the browser-style request gets nginx's own 404 page but `curl -H 'Host: <domain>' http://127.0.0.1/...` works, the file was not loaded when you tested: reload and retry. Check that nginx really loaded it: `sudo nginx -T | grep -n -B2 -A12 '<domain>'`.
 
-**D2.7 HTTPS (required).** Browsers block insecure uploads from secure pages, and the CheerIT website rewrites `http://` media links to `https://`.
+**You should see:** `nginx -t` says the syntax is ok, and the `curl` returns `{"success":true…`.
+**If not:** if you get nginx's own 404 page, the file was not loaded yet (reload and try again) or another site catches the name. Look at what nginx loaded: `sudo nginx -T | grep -n -B2 -A12 '<domain>'`.
+
+### 4.2.7 HTTPS (required)
+
+Browsers block uploads from a secure page to an insecure address, and the CheerIT website turns `http://` media links into `https://`.
+
 ```bash
 sudo certbot --nginx -d <domain>
 curl -s https://<domain>/api/events/mobile/live | head -c 150
 ```
+
 Choose "redirect http to https" when asked. The certificate renews itself.
 
-**D2.8 Then do D1 steps 3 to 7** (key, restart, the 401 check, user sync).
+### 4.2.8 Finish
 
-### D3. Storage permission (CheerIT's upload bucket)
-The viewer's browser uploads **straight to the bucket**, so the bucket must allow browser uploads from ScoreIT's website. In the bucket's CORS settings:
+Now do steps 3 to 7 of section 4.1 (the `com` key, restart, the 401 check, the user sync).
+
+## 4.3 Storage permission for cheer uploads
+
+The viewer's browser uploads **directly to the bucket**. The bucket must allow that from ScoreIT's website. In the bucket's CORS settings:
+
 ```json
 [{
   "AllowedOrigins": ["https://<score-website>", "https://<cheerit-website>"],
@@ -440,178 +594,220 @@ The viewer's browser uploads **straight to the bucket**, so the bucket must allo
   "MaxAgeSeconds": 3000
 }]
 ```
+
 Test it before any cheer:
+
 ```bash
 curl -s -i -X OPTIONS "https://<bucket>.s3.<region>.amazonaws.com/" -H "Origin: https://<score-website>" -H "Access-Control-Request-Method: POST" | grep -i access-control-allow-origin
 ```
-It must print your website. After one test cheer: `aws s3 ls s3://<bucket>/non-ai-approved/ --recursive | tail -3` shows the new file. Everything must be https (the website, the CheerIT API and the bucket).
+
+**You should see:** your website address printed.
+After one test cheer: `aws s3 ls s3://<bucket>/non-ai-approved/ --recursive | tail -3` shows the new file.
+The website, the CheerIT API and the bucket must **all** be https.
 
 ---
 
-## Part E. ScoreIT cheering feature
+# PART 5. The ScoreIT cheering feature
 
-Branch `feat/cheerit-cheer` of `Shriya2020/ScoreIT` (already includes the login fix). Do Part D first.
+Branch `feat/cheerit-cheer` of `Shriya2020/ScoreIT` (it already includes the login fix). **Do Part 4 first.**
 
-### E1. Decisions to make first
-| Decision | Recommendation |
-|---|---|
-| SSO (no second code) or a CheerIT OTP once? | SSO (`VITE_CHEERIT_TOKEN_LOGIN=on`) |
-| Created events **public or private**? | **Private** first. Public events appear in CheerIT's live list **and push a "live now" notification to every CheerIT user for every match** |
-| May ScoreIT create events, teams and competitions in CheerIT? | Yes, but test with fake team names first. CheerIT's create routes need no login today |
+## 5.1 Decide these three things first
 
-### E2. Backend
-Code, then in `ScoreIT/backend`: `npm install`, `npx prisma generate`. Add to its `.env` (check for duplicates; the last line wins):
+1. **SSO or a CheerIT code once?** Recommended: **SSO** (`VITE_CHEERIT_TOKEN_LOGIN=on`).
+2. **Public or private events?** Recommended: **private** at first. **Public** events show in CheerIT's own live list **and send a "live now" notification to every CheerIT user for every match**.
+3. **May ScoreIT create events, teams and competitions in CheerIT?** Recommended: yes, but test with fake team names first. (CheerIT's create routes have no login today.)
 
-| Setting | Value |
-|---|---|
-| `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` | already set by Part C |
-| `CHEERIT_API_URL` | `https://<cheerit-api>` (no trailing `/api`) |
-| `CHEERIT_CREATE_EVENTS` | `on` (**off by default**; turns on event creation, logos and score sending) |
-| `CHEERIT_ORG_ID` | an organization id from CheerIT (needed only the first time, to create the "ScoreIT" competitions; not needed if CheerIT's admin created competitions "ScoreIT", "ScoreIT Football", "ScoreIT Badminton") |
-| `CHEERIT_EVENT_ACCESS` | `private` (default) or `public` |
-| `CHEERIT_EVENT_TAG` | `ScoreIT` (use `ScoreIT-dev` on a dev Score that feeds the same CheerIT: events are named "A vs B (ScoreIT #12)" and match numbers must not collide) |
-| `CHEERIT_SYNC_SECONDS` | default `15` |
-| `CHEERIT_EVENT_HOURS` | default `12` (must be longer than a match) |
-| `SCORE_PUBLIC_URL` | where Score serves uploaded files, to copy uploaded team logos |
-| optional | `CHEERIT_VENUE_ID`, `CHEERIT_COMPETITION_ID`, `CHEERIT_GROUP_ID`, `CHEERIT_EVENTTYPE_ID`, `CHEERIT_VIDEO_SECONDS` |
+## 5.2 ScoreIT backend
 
-Restart: `pm2 restart scoreit-backend --update-env`. The log must say `creating CheerIT events and sending scores for live matches every 15s` and must **not** keep printing `background check failed`.
-
-### E3. Frontend (rebuild; Vite bakes these in at build time)
-Build environment:
-```
-VITE_CHEERIT_API_URL=https://<cheerit-api>
-VITE_CHEERIT_TOKEN_LOGIN=on
-```
-Optional: `VITE_CHEERIT_WEB_URL` (the "On CheerIT" link), `VITE_PREDICT_API_URL` and `VITE_PREDICT_WEB_URL` (predict card).
 ```bash
-cd <score-dir>/frontend
+cd <score-folder>/backend
+npm install
+npx prisma generate
+```
+
+Add these lines to its `.env` (check for repeated lines):
+
+- `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY`: already set in Part 3.
+- `CHEERIT_API_URL=https://<cheerit-api>` (no `/api` at the end)
+- `CHEERIT_CREATE_EVENTS=on` (**off by default**; it turns on event creation, logos and score sending)
+- `CHEERIT_ORG_ID=<organization id>`: only needed the first time, to create the "ScoreIT" competitions. Not needed if CheerIT's admin created the competitions "ScoreIT", "ScoreIT Football" and "ScoreIT Badminton".
+- `CHEERIT_EVENT_ACCESS=private` (or `public`)
+- `CHEERIT_EVENT_TAG=ScoreIT` (use `ScoreIT-dev` on a dev ScoreIT that feeds the same CheerIT, so match numbers cannot collide)
+- `CHEERIT_SYNC_SECONDS=15` (default)
+- `CHEERIT_EVENT_HOURS=12` (default; must be longer than a match)
+- `SCORE_PUBLIC_URL=<address where ScoreIT serves uploaded files>` (to copy uploaded team logos)
+- Optional: `CHEERIT_VENUE_ID`, `CHEERIT_COMPETITION_ID`, `CHEERIT_GROUP_ID`, `CHEERIT_EVENTTYPE_ID`, `CHEERIT_VIDEO_SECONDS`
+
+Restart:
+
+```bash
+pm2 restart scoreit-backend --update-env
+pm2 logs scoreit-backend --lines 30 --nostream
+```
+
+**You should see:** `creating CheerIT events and sending scores for live matches every 15s`, and **no** repeating `background check failed`.
+
+## 5.3 ScoreIT website
+
+The website reads these settings **when it is built**. Set them in the build environment, then build again.
+
+- `VITE_CHEERIT_API_URL=https://<cheerit-api>`
+- `VITE_CHEERIT_TOKEN_LOGIN=on`
+- Optional: `VITE_CHEERIT_WEB_URL`, `VITE_PREDICT_API_URL`, `VITE_PREDICT_WEB_URL`
+
+```bash
+cd <score-folder>/frontend
 npm install
 npm run build
 ```
-Then publish the build to the folder nginx serves (dev: `/var/www/scoreit`). `npm install` is needed: the frontend now depends on `mediabunny` (tested version 1.55.2).
-**If the Score server has uncommitted hand-edited files** (the dev server did), do not `git pull` over them: copy the folder aside first (`rsync -a --exclude node_modules --exclude dist <score-dir>/ <score-dir>.backup-<date>/`), look at `git status`, and bring the branch's files in deliberately.
 
-### E4. Check
+Then copy the build to the folder nginx serves (on dev: `/var/www/scoreit`). `npm install` is required because the website now needs a library called `mediabunny` (tested version 1.55.2).
+
+**If the ScoreIT server has uncommitted hand-edited files** (the dev server does), do not `git pull` over them. First make a safe copy:
+
+```bash
+rsync -a --exclude node_modules --exclude dist <score-folder>/ <score-folder>.backup-<date>/
+```
+
+Then look at `git status` and bring the branch's files in on purpose.
+
+## 5.4 Check it works
+
 ```bash
 curl -s http://127.0.0.1:<score-port>/api/public/matches/<live-match-id>/cheerit
 ```
-`{"linked":true,"eventId":…,"eventName":"A vs B (ScoreIT #n)"}` is working. Within 15 seconds of a match going live, that event exists in CheerIT. Reasons otherwise: `no_match` (creation off, match not live, or a sport that is not supported: only cricket is wired in today), `unavailable` (Score cannot read CheerIT: check `CHEERIT_API_URL` and for a duplicate `.env` line), `not_configured` (`CHEERIT_API_URL` not set).
 
-### E5. What the feature does (for the person testing)
-- **Each live Score match gets its own CheerIT event** `A vs B (ScoreIT #12)`; a team missing in Score data shows as "Unknown".
-- Teams are found by name or created; they get the uploaded Score logo or else the same default picture the Score website shows.
-- Every 15 seconds Score sends the ball-by-ball score to CheerIT's scorecard (only differences; edits and undos are copied; the scorecard is marked complete when the match ends).
-- The viewer: picks a team, **full-screen camera** (Photo or Video, up to 7 seconds), **sound check** (refused if under 2 seconds, silent or too quiet), **video compression** (about 2 MB, first 7 seconds, in the browser), preview with **Retake**, consent, upload. Login is SSO; if SSO fails the card falls back to a CheerIT OTP login.
-- A cheer is saved in CheerIT at once (**APPROVED** unless the event has CheerIT's AI check on) under the viewer's CheerIT account, and counts toward CheerIT's own limit of 5 cheers per user per event, whether cast from ScoreIT or the CheerIT app.
-- CheerIT's own app and website can cheer on these events too if they are **public**.
+**You should see:** `{"linked":true,"eventId":…,"eventName":"A vs B (ScoreIT #n)"}`.
+**If you see a reason instead:**
 
----
+- `no_match`: creation is off, the match is not live, or the sport is not supported (only cricket today).
+- `unavailable`: ScoreIT cannot reach CheerIT. Check `CHEERIT_API_URL` and look for a repeated line in `.env`.
+- `not_configured`: `CHEERIT_API_URL` is not set.
 
-## Part F. CheerIT website card (optional)
+## 5.5 What the feature does
 
-Repository `CheerIT-COM`, branch `feat/card-team-name-and-score`: shows the team name under each logo and the live score on the live-match card (reads `/scorecards/event/<id>/live`). Two files (`src/api/client.ts`, `src/components/MatchCard.tsx`). Merge in the normal way. The website reads CheerIT's address from `VITE_API_URL`, `VITE_DIRECT_API_BASE_URL`, `VITE_PROXY_API_URL` (all three; changing one leaves it half on another server).
+- Each live ScoreIT match gets **its own CheerIT event**, named like `A vs B (ScoreIT #12)`. A team missing in ScoreIT data is shown as "Unknown".
+- Teams are found by name or created. They get the uploaded ScoreIT logo, or the same default picture the ScoreIT website shows.
+- Every 15 seconds ScoreIT sends the ball-by-ball score to CheerIT. Only differences are sent. Edits and undos are copied. The scorecard is marked complete when the match ends.
+- The viewer: picks a team, uses the **full-screen camera** (photo or video up to 7 seconds), passes a **sound check** (refused if shorter than 2 seconds, silent or too quiet), the video is **compressed in the browser** (about 2 MB), sees a preview with **Retake**, agrees, and uploads.
+- Login is SSO. If SSO fails the card asks for a CheerIT code instead.
+- The cheer is saved in CheerIT at once (**APPROVED**, unless the event has CheerIT's AI check on). A person can cheer up to **5 times per event**, counting cheers from ScoreIT and from the CheerIT app together.
+- If events are **public**, people can also cheer on them from the CheerIT app and website.
 
----
+## 5.6 Optional: team name and score on the CheerIT website card
 
-## Part G. Acceptance checks (all must pass)
-
-| # | Check | Pass |
-|---|---|---|
-| 1 | `curl http://127.0.0.1:4100/health` | `{"ok":true}` |
-| 2 | `dry-run`, `apply`, `link --verify-only` | all PASS; second `--apply` writes 0 |
-| 3 | Score wrong-code test (C1) | no token |
-| 4 | Log in on each app with your own number, then the `user_apps` query | fresh `last_seen_at` for that app |
-| 5 | `pm2 stop identity`, log in | login still works; `pm2 start identity` after |
-| 6 | CheerIT `sso-login` with a wrong token | 401 |
-| 7 | `GET /api/events/mobile/live` on the CheerIT address over https | `{"success":true…` |
-| 8 | A fake live cricket match in Score | within 15 s an event "…(ScoreIT #n)" exists in CheerIT |
-| 9 | The Score page for that match | cheer card shows Photo **and Video** |
-| 10 | Cheer once from a phone you own, with SSO | no code asked; cheer saved (APPROVED) |
-| 11 | The file in the bucket | `aws s3 ls …/non-ai-approved/ --recursive` shows it |
-| 12 | The same cheer in the CheerIT app or website (My Cheers) | visible; playable (https) |
-| 13 | Delete the fake match's rows in CheerIT's admin | done |
+Repository `Shriya2020/CheerIT-COM`, branch `feat/card-team-name-and-score` (two files: `src/api/client.ts` and `src/components/MatchCard.tsx`). Merge it the normal way. The website takes CheerIT's address from three settings that must all match: `VITE_API_URL`, `VITE_DIRECT_API_BASE_URL`, `VITE_PROXY_API_URL`.
 
 ---
 
-## Rollback
+# PART 6. Final checks
 
-- **One app off:** remove its two `IDENTITY_` lines from its `.env`, then `pm2 restart <name> --update-env`. Login behaves as before.
-- **Identity off everywhere:** `pm2 stop identity` (apps keep working and log a warning per login).
-- **Stop creating events and scores:** unset `CHEERIT_CREATE_EVENTS` and restart Score. Existing events stay.
-- **Back to OTP login in the card:** unset `VITE_CHEERIT_TOKEN_LOGIN` and rebuild.
-- **Hide the card:** unset `VITE_CHEERIT_API_URL` and rebuild.
-- **SSO off in CheerIT:** remove its two `IDENTITY_` lines and restart; the route then answers 503 and the card falls back to OTP.
-- **Undo the identity data:** `DROP DATABASE cheeritidentity;`. The `identity_id` columns are nullable and harmless; leave them.
-- **Restore a database:** `pg_restore --clean` from the B1 backup.
+Tick each one. All must pass.
 
----
-
-## Troubleshooting (every problem seen)
-
-| You see | Cause and fix |
-|---|---|
-| `dry-run` prints `Skipped` for every app | the `.env` was not loaded: use `node --env-file=.env …` |
-| `database "cheeritidentity" does not exist` | create it (B2) or fix `IDENTITY_URL` |
-| `Set IDENTITY_URL …` on start | the variable is `IDENTITY_URL`, not `DATABASE_URL` |
-| `HTTP 401` in an app's log (`[Identity] linking … failed`) | wrong or cancelled key: issue a new one, replace the `.env` line, `pm2 restart --update-env` |
-| `HTTP 500` and `PayloadTooLargeError` in `pm2 logs identity` | an app sent a base64 avatar: deploy `fix/identity-skip-data-avatar` (GameIT, TurfIT) |
-| `HTTP 409` | that app user is already linked to a different phone: fix by hand; the service never moves a user |
-| `identityId` Prisma errors, or a link that never updates | stale Prisma client: `npx prisma generate`, restart |
-| Key length prints `0` | the issue command failed: run `npm run issue-key -- <app>` and read the error |
-| `.env` has `IDENTITY_API_KEY=<…>` | a placeholder was pasted literally: reissue and rewrite |
-| `curl: (7)` or "no such file or directory" in the CheerIT folder | wrong folder: on `globaldb` the project is the repository root, on `sso-login` it is `CheerITWebAPIV4/` |
-| CheerIT stops after `Prisma connected successfully` | Redis not running (D2.1) |
-| CheerIT: `SMS settings not configured` on an OTP request | the new database lacks the SMS row (D2.3 seed) |
-| OTP request accepted but no SMS arrives | the `LOGIN_OTP` text must match the text registered with the SMS provider: "Your OTP is {#var#}. Do not share it with anyone. AvenCheer" |
-| nginx's own 404 for the domain | the new file was not loaded yet (reload), or another block catches the name: `sudo nginx -T \| grep -n -B2 -A12 '<domain>'` |
-| `sso-login` answers 503 | `IDENTITY_SERVICE_URL`/`IDENTITY_API_KEY` missing in CheerIT's `.env`, or not loaded (`--update-env`) |
-| `sso-login` answers 404 | the SSO commit is not deployed |
-| `POST /api/auth/cheerit-sso` 502 in Score's log | the identity service is down or unreachable from Score; the card falls back to OTP |
-| Score log repeats `background check failed: fetch failed` | `CHEERIT_API_URL` points at something that is down, or a duplicate line in `.env` overrides it |
-| `{"linked":false,"reason":"unavailable"}` | same as above |
-| Card shows only photo buttons | the CheerIT event was saved with video off: CheerIT's **create** route reads `allow_video_audio` (Score `03e0dc53` sends it); for an old event: `update "Event" set allow_video_with_audio = true where …` |
-| 5 live matches show fewer events | old behaviour (one per pair of teams): deploy Score `867ef9ae` or later |
-| A match gets a second event after hours | events stay open `CHEERIT_EVENT_HOURS` (12): keep it longer than a match |
-| Private event creation fails "At least one group is required" | handled: Score creates an empty group "ScoreIT" |
-| Upload slot is given but the browser upload fails | the bucket has no CORS rule for the website (D3), or something is not https |
-| `ERR_SSL_PROTOCOL_ERROR` on media in the CheerIT website | media links point at a plain-http host (only happens with a local stand-in storage; real S3 is https) |
-| Team pictures broken in the CheerIT website | its `BASE_URL` must be an https address |
-| Cheer refused "team_id … not allowed for non-sports events" | the CheerIT event is not a sports type: only CheerIT's team can change it |
-| Camera does not open | the page must be https (or localhost) and the browser must allow the camera; the card then offers "Use camera app" |
-| Predict card empty | PredictIt is not reachable at `VITE_PREDICT_API_URL` |
+- [ ] `curl http://127.0.0.1:4100/health` returns `{"ok":true}`
+- [ ] `dry-run`, `apply` and `link --verify-only` all PASS, and the second `--apply` writes 0
+- [ ] ScoreIT wrong-code test (3.3): no token
+- [ ] Log in on each app with your own number: its `last_seen_at` is fresh
+- [ ] `pm2 stop identity`, then log in: login still works. Then `pm2 start identity`
+- [ ] CheerIT `sso-login` with a wrong token returns `401`
+- [ ] The CheerIT API address over https returns `{"success":true…`
+- [ ] A fake live cricket match in ScoreIT: within 15 seconds an event "…(ScoreIT #n)" exists in CheerIT
+- [ ] The ScoreIT page for that match shows **Photo and Video** buttons
+- [ ] Cheer once from a phone you own, with SSO: no code is asked, and the cheer is saved
+- [ ] The file is in the bucket (`aws s3 ls …/non-ai-approved/ --recursive`)
+- [ ] The same cheer is visible and plays in the CheerIT app or website
+- [ ] The fake match's rows are deleted from CheerIT's admin
 
 ---
 
-## Appendix 1. Settings by file (what to paste where)
+# If something goes wrong
 
-| File | Setting | Value |
-|---|---|---|
-| `cheeritidentity/.env` | `IDENTITY_URL`, `PORT`, `HOST`, `SRC_*_URL` (read-only), `LINK_*_URL` (owner) | Part B3 |
-| Each app backend `.env` (Score, GameIT, PredictIt, TurfIT, Sponsor) | `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` | `http://127.0.0.1:4100` (same server) or the identity service's private address; the app's own key |
-| CheerIT API `.env` | `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` | same address; the key for `com` |
-| CheerIT API `.env` | `DATABASE_URL`, `PORT`, `BASE_URL`, `APP_PUBLIC_URL`, `SQUAD_INVITE_BASE_URL`, `WEB_BASE_URL`, `JWT_*`, `REDIS_URL`, `AWS_*`, `S3_BUCKET`, `SMS_*` | Part D2.4 |
-| Score backend `.env` | `CHEERIT_API_URL`, `CHEERIT_CREATE_EVENTS`, `CHEERIT_ORG_ID`, `CHEERIT_EVENT_ACCESS`, `CHEERIT_EVENT_TAG`, `CHEERIT_SYNC_SECONDS`, `CHEERIT_EVENT_HOURS`, `SCORE_PUBLIC_URL` | Part E2 |
-| Score frontend build env | `VITE_CHEERIT_API_URL`, `VITE_CHEERIT_TOKEN_LOGIN`, `VITE_CHEERIT_WEB_URL`, `VITE_PREDICT_API_URL`, `VITE_PREDICT_WEB_URL` | Part E3 |
-| PredictIt backend `.env` | `SCOREIT_API_URL`, `OTP_DEV_MODE`, `OTP_LOG_CODE` | Score's API address; both `false` in production |
-| Score backend `.env` | `LOG_OTP_TO_CONSOLE` | `false` in production |
-| CheerIT website build env | `VITE_API_URL`, `VITE_DIRECT_API_BASE_URL`, `VITE_PROXY_API_URL` | the CheerIT API address, all three |
-| CheerIT storage bucket | CORS | Part D3 |
+## How to undo things
 
-## Appendix 2. Addresses used on the dev server (for orientation only)
+- **One app off:** remove its two `IDENTITY_` lines from its `.env`, then `pm2 restart <name> --update-env`. Login works as before.
+- **Identity off for everyone:** `pm2 stop identity`. Apps keep working and log a warning per login.
+- **Stop creating events and scores:** remove `CHEERIT_CREATE_EVENTS` from ScoreIT's `.env` and restart ScoreIT. Existing events stay.
+- **Back to a code login in the card:** remove `VITE_CHEERIT_TOKEN_LOGIN` and rebuild the website.
+- **Hide the card:** remove `VITE_CHEERIT_API_URL` and rebuild.
+- **SSO off in CheerIT:** remove its two `IDENTITY_` lines and restart. The route then answers 503 and the card falls back to a code login.
+- **Delete the identity data:** `DROP DATABASE cheeritidentity;` The `identity_id` columns are empty-able and harmless; leave them.
+- **Restore a database:** `pg_restore --clean` from the Step 2.1 backup.
 
-CheerIT API `https://devcheerback.avenengage.com` (nginx to port 3002, pm2 `cheeritwebapi-dev`, database `cheeritback`); ScoreIT `https://devscoreit.avenengage.com`
-(backend port 3001 under pm2 `scoreit-backend`, website built into `/var/www/scoreit`); identity service `127.0.0.1:4100` (pm2 `identity`); CheerIT-COM dev `devcheerit.avenengage.com`.
-Production addresses are different: fill in the worksheet in section 0.4.
+## Problems and fixes
 
-## Appendix 3. Where the code is
+**The identity scripts**
+- `dry-run` prints `Skipped` for every app: the `.env` was not loaded. Use `node --env-file=.env …`.
+- `database "cheeritidentity" does not exist`: create it (Step 2.2) or fix `IDENTITY_URL`.
+- `Set IDENTITY_URL …` when starting: the setting is called `IDENTITY_URL`, not `DATABASE_URL`.
+- Key length prints `0`: the key command failed. Run `npm run issue-key -- <app>` and read the error.
+- `.env` contains `IDENTITY_API_KEY=<…>`: a placeholder was pasted. Issue a new key and rewrite the line.
 
-| Repository | Branch | Contents |
-|---|---|---|
-| `kartikavencheer/cheeritidentity` | `main` | identity service and scripts, these documents, `dev-tools/` |
-| `Shriya2020/ScoreIT` | `feat/cheerit-cheer` | Score identity code, login fix, cheer card, event creation, logos, scores, video and sound logic |
-| `Shriya2020/CheerITWebAPI` | `sso-login` (clean) or `globaldb` | SSO route and identity link (commit `d5f3b67`) |
-| `Shriya2020/CheerIT-COM` | `feat/card-team-name-and-score` | team name and score on the live card |
-| `Shriya2020/predictitapp` | `master` (identity), `feat/identity-sso-login` (optional) | |
-| `Shriya2020/pickleball`, `Shriya2020/turfitweb` | `fix/identity-skip-data-avatar` | |
-| `Shriya2020/CheerIT-Sponsor` | `stackchnage` | |
+**An app's log**
+- `HTTP 401` (`[Identity] linking … failed`): wrong or cancelled key. Issue a new one, replace the line, restart with `--update-env`.
+- `HTTP 500` and `PayloadTooLargeError` in `pm2 logs identity`: an app sent a base64 photo. Deploy `fix/identity-skip-data-avatar` (GameIT, TurfIT).
+- `HTTP 409`: that user is already linked to a different phone. Fix by hand. The service never moves a user.
+- `identityId` Prisma errors: out-of-date Prisma client. Run `npx prisma generate` and restart.
+
+**Hosting the CheerIT API**
+- "no such file or directory" in the CheerIT folder: wrong folder. On `globaldb` the project is the repository top, on `sso-login` it is `CheerITWebAPIV4/`.
+- CheerIT stops after `Prisma connected successfully`: Redis is not running (4.2.1).
+- `SMS settings not configured` on an OTP request: the new database lacks the SMS row (4.2.3).
+- OTP request accepted but no SMS arrives: the `LOGIN_OTP` text must match the text registered with the SMS provider: "Your OTP is {#var#}. Do not share it with anyone. AvenCheer".
+- nginx's own 404 for the domain: reload nginx and retry, or check `sudo nginx -T | grep -n -B2 -A12 '<domain>'`.
+- `sso-login` answers 503: the two `IDENTITY_` settings are missing or not loaded (use `--update-env`). It answers 404: the SSO commit is not deployed.
+
+**ScoreIT and cheering**
+- `POST /api/auth/cheerit-sso` 502 in ScoreIT's log: the identity service is down or unreachable. The card falls back to a code login.
+- ScoreIT log repeats `background check failed: fetch failed`, or the lookup says `unavailable`: `CHEERIT_API_URL` points at something that is down, or a repeated line in `.env` overrides it.
+- The card shows only photo buttons: the CheerIT event was saved with video off. CheerIT's **create** route reads `allow_video_audio` (ScoreIT commit `03e0dc53` sends it). For an old event: `update "Event" set allow_video_with_audio = true where …`
+- 5 live matches show fewer events: old behaviour (one per pair of teams). Deploy ScoreIT `867ef9ae` or later.
+- A match gets a second event after some hours: events stay open `CHEERIT_EVENT_HOURS` (12). Keep it longer than a match.
+- The browser upload fails even though a slot was given: the bucket has no CORS rule for the website (4.3), or something is not https.
+- `ERR_SSL_PROTOCOL_ERROR` on pictures or videos: the link points at a plain-http address. This only happens with a local test storage; real S3 is https.
+- Team pictures broken on the CheerIT website: CheerIT's `BASE_URL` must be an https address.
+- "team_id … not allowed for non-sports events": the CheerIT event is not a sports type. Only CheerIT's team can change that.
+- The camera does not open: the page must be https (or localhost) and the browser must allow the camera. The card then offers "Use camera app".
+- The predict card is empty: PredictIt is not reachable at `VITE_PREDICT_API_URL`.
+
+---
+
+# Reference
+
+## Where each setting goes
+
+**`cheeritidentity/.env`:** `IDENTITY_URL`, `PORT`, `HOST` (optional), `SRC_*_URL` (read-only), `LINK_*_URL` (owner). See Step 2.3.
+
+**Every app backend `.env`** (ScoreIT, GameIT, PredictIt, TurfIT, Sponsor): `IDENTITY_SERVICE_URL` (`http://127.0.0.1:4100`, or the identity service's private address) and `IDENTITY_API_KEY` (that app's own key).
+
+**CheerIT API `.env`:** `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY` (the `com` key); plus `DATABASE_URL`, `PORT`, `BASE_URL`, `APP_PUBLIC_URL`, `SQUAD_INVITE_BASE_URL`, `WEB_BASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `REDIS_URL`, `AWS_REGION`, `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `SMS_*`. See 4.2.4.
+
+**ScoreIT backend `.env`:** `CHEERIT_API_URL`, `CHEERIT_CREATE_EVENTS`, `CHEERIT_ORG_ID`, `CHEERIT_EVENT_ACCESS`, `CHEERIT_EVENT_TAG`, `CHEERIT_SYNC_SECONDS`, `CHEERIT_EVENT_HOURS`, `SCORE_PUBLIC_URL`, `LOG_OTP_TO_CONSOLE=false` (production). See 5.2.
+
+**ScoreIT website build environment:** `VITE_CHEERIT_API_URL`, `VITE_CHEERIT_TOKEN_LOGIN`, `VITE_CHEERIT_WEB_URL`, `VITE_PREDICT_API_URL`, `VITE_PREDICT_WEB_URL`. See 5.3.
+
+**PredictIt backend `.env`:** `SCOREIT_API_URL` (ScoreIT's API address), `OTP_DEV_MODE=false`, `OTP_LOG_CODE=false` (production).
+
+**CheerIT website build environment:** `VITE_API_URL`, `VITE_DIRECT_API_BASE_URL`, `VITE_PROXY_API_URL`: all three are CheerIT's API address.
+
+**CheerIT storage bucket:** the CORS rule in 4.3.
+
+## Addresses used on the dev server (for orientation only)
+
+- CheerIT API: `https://devcheerback.avenengage.com` (nginx to port 3002, pm2 `cheeritwebapi-dev`, database `cheeritback`)
+- ScoreIT: `https://devscoreit.avenengage.com` (backend port 3001, pm2 `scoreit-backend`, website built into `/var/www/scoreit`)
+- Identity service: `127.0.0.1:4100` (pm2 `identity`)
+- CheerIT website (dev): `devcheerit.avenengage.com`
+
+Production addresses are different. Fill them in using section 4.
+
+## Where the code is
+
+- `kartikavencheer/cheeritidentity`, branch `main`: the identity service and scripts, these documents, test scripts in `dev-tools/`
+- `Shriya2020/ScoreIT`, branch `feat/cheerit-cheer`: ScoreIT identity code, login fix, cheer card, events, logos, scores, video and sound logic
+- `Shriya2020/CheerITWebAPI`, branch `sso-login` (clean) or `globaldb`: the SSO route (commit `d5f3b67`)
+- `Shriya2020/CheerIT-COM`, branch `feat/card-team-name-and-score`: team name and score on the card
+- `Shriya2020/predictitapp`: `master` (identity code); `feat/identity-sso-login` is optional and untested
+- `Shriya2020/pickleball` and `Shriya2020/turfitweb`: `fix/identity-skip-data-avatar`
+- `Shriya2020/CheerIT-Sponsor`: `stackchnage`
+
+Other files in this repository (background only): `CHEERIT_PRODUCTION_GUIDE.md` (the cheer feature in depth), `PRODUCTION_RUNBOOK.md` and `PRODUCTION_COMMANDS.md` (earlier versions of Parts 2 and 3), `HANDOFF.md` (status), `CONVERSATION.md` (history).
