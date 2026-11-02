@@ -2,7 +2,7 @@ import { spawn, execSync } from "node:child_process"; import { readFileSync, wri
 const OUT = process.argv[2], W = Number(process.argv[3] || 390), H = Number(process.argv[4] || 844), MOBILE = process.argv[5] !== "desktop";
 const env = readFileSync("/Volumes/MACDISK/kartik/WEBSITES/CheerIT-Score/backend/.env", "utf8"); const scKey = env.match(/^IDENTITY_API_KEY=(.*)$/m)[1];
 const idn = execSync(`psql -h localhost -p 5433 -U avenpc -d cheerit_identity -Atc "select id from users where phone like '%7507355838' limit 1"`).toString().trim();
-const j = (r) => r.json(), A = "http://localhost:4400/api";
+const j = (r) => r.json(), A = "http://localhost:3002/api";
 const { token } = await fetch("http://localhost:4100/v1/sso/issue", { method: "POST", headers: { authorization: `Bearer ${scKey}`, "content-type": "application/json" }, body: JSON.stringify({ identityId: idn, toApp: "com" }) }).then(j);
 const login = await fetch(`${A}/auth/sso-login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token }) }).then(j);
 const tokens = { accessToken: login.accessToken, refreshToken: login.refreshToken, userId: login.user.user_id ?? login.user.id, scoreUserId: 1 };
