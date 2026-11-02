@@ -210,13 +210,16 @@ Database check on CheerIT (read-only): `select event_name, access_type from "Eve
 
 ## 11. Local setup used for testing (all stand-ins, no production)
 
-Local ports: CheerIT API copy **4400** (database `cheerit_new`, created with `prisma db push`, then seeded: event statuses 1 to 4, category Sport, type Cricket, one organization, an SMS
-settings row and the `LOGIN_OTP` template), stand-in storage **4500** (`fake-s3.mjs`, with `AWS_ENDPOINT_URL_S3` and fake AWS keys so nothing reaches AWS), stand-in Redis **6379**,
-identity service **4100**, Score backend **3001**, Score frontend **3000**, CheerIT-COM **3004**. Test login number: the one owner number already in the local CheerIT user table.
-Start CheerIT with settings overridden on the command line (never edit its `.env`): `DATABASE_URL`, `PORT`, `BASE_URL=""`, `AWS_*`, `AWS_ENDPOINT_URL_S3`, `IDENTITY_SERVICE_URL`, `IDENTITY_API_KEY`.
-Tests are in `dev-tools/cheerit-integration/`: event creation (`score-cheerit-create-test.mts`, stub CheerIT, runs 5 times stable), ball diff (`diff-test.mts`), badge hash vs the website (`badge-test.mts`),
-sound rules vs the website (`audio-test.mts`), video compression in Chrome (`video-test/`), full SSO cheer (`sso-cheer.mjs`), real-data loop (`loop-real.mts`, needs `DATABASE_URL`), and `drive.mjs` which drives the real card
-in headless Chrome with a fake camera and saves screenshots (mobile 390×844 and desktop).
+**One CheerIT only: your own, on port 3002** (`npm run dev` in the CheerIT folder; database `cheerit_new`, created with `prisma db push` and seeded: event statuses 1 to 4, category Sport, type Cricket, an
+organization, an SMS settings row and the `LOGIN_OTP` template). Its `.env` holds `IDENTITY_SERVICE_URL=http://127.0.0.1:4100` and `IDENTITY_API_KEY` (the `com` key): these are the same two settings the hosted server needs,
+only the key is different per server (issue a new one there). Other local programs: identity service **4100** (`npm start` in the identity folder), stand-in Redis **6379** (CheerIT waits for it at start),
+stand-in storage **4500**, Score backend **3001**, Score frontend **3000**, CheerIT-COM **3004**. Score points at CheerIT with `CHEERIT_API_URL` and `VITE_CHEERIT_API_URL` = `http://localhost:3002`.
+To test uploads locally without real AWS, start CheerIT with two settings on the command line (not in `.env`, so they never travel to a server):
+`BASE_URL= AWS_ENDPOINT_URL_S3=http://localhost:4500 npm run dev` (`BASE_URL` empty makes picture links relative so CheerIT-COM does not turn them into https).
+Stand-ins and helpers are in `dev-tools/cheerit-integration/`: `fake-redis.mjs`, `fake-s3.mjs`. Tests: event creation (`score-cheerit-create-test.mts`, stub CheerIT, five runs stable), ball diff (`diff-test.mts`),
+badge hash vs the website (`badge-test.mts`), sound rules vs the website (`audio-test.mts`), video compression in Chrome (`video-test/`), a full SSO cheer (`sso-cheer.mjs`, set its address to 3002),
+real-data loop (`loop-real.mts`, needs `DATABASE_URL`), and `drive.mjs` which drives the real card in headless Chrome with a fake camera and saves screenshots (mobile 390×844 and desktop).
+Earlier sessions also ran a second CheerIT copy on 4400; it is no longer used.
 
 ## 12. Not verified yet (do on the first real run)
 

@@ -44,9 +44,10 @@ Without SSO nothing in CheerIT changes and the card asks for a CheerIT OTP once.
 
 ## Where things run locally (for testing)
 
-CheerIT API copy on **4400** (`cheerit_new`), stand-in storage **4500**, stand-in Redis **6379**, identity **4100**, Score backend **3001**, Score frontend **3000**, CheerIT-COM **3004**.
-Details and how they are started: `CHEERIT_PRODUCTION_GUIDE.md` §11. Tests and helpers: `dev-tools/cheerit-integration/`. Local helper processes were started by hand and are
-not under pm2; stop them when done. Your own CheerIT dev server (port 3002, `npm run dev`) now points at the local `cheerit_new` database.
+**One CheerIT: yours, on 3002** (`cheerit_new`). Identity service **4100**, stand-in Redis **6379**, stand-in storage **4500**, Score backend **3001**, Score frontend **3000**, CheerIT-COM **3004**.
+Score uses 3002 for CheerIT and 4100 for the identity service (two different programs). Details and the local start command: `CHEERIT_PRODUCTION_GUIDE.md` §11. Tests and helpers: `dev-tools/cheerit-integration/`.
+The stand-ins and the identity service were started by hand (not pm2) and stop when the Mac restarts; start them again from `dev-tools/cheerit-integration/` and `npm start` in the identity folder.
+The CheerIT folder was reorganised: the project files are now at the top of `CheerITWebAPI` (no `CheerITWebAPIV4` subfolder), while Git still tracks the old folder name, so `git status` there looks messy.
 
 ## Dev server (Linux, pm2, one box for all backends)
 
