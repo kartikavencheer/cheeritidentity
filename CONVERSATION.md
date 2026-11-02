@@ -556,6 +556,18 @@ You hosted the CheerIT API on the dev server at `https://devcheerback.avenengage
 401; `com` was added to the identity sync (0 users yet, every other app still PASS). Score dev (`devscoreit.avenengage.com`, backend port 3001, website in `/var/www/scoreit`) has uncommitted hand edits, so the cheer branch is to be brought in only after a backup and a look at `git status`.
 You then asked for one document a production deployer can follow alone: **`PRODUCTION_DEPLOYMENT_GUIDE.md`** (worksheet of values, security items, identity and data sync, every app, the CheerIT API both ways, the cheer feature, acceptance checks, rollback, troubleshooting, settings by file).
 
+## 55. Guide as PDF and web page, then the website and Score problems
+
+The deployment guide was rewritten in plain words (short numbered steps; Where / Run / You should see / If not), then published as a PDF and a web page (generator in `dev-tools/guide-page`).
+You then sent screenshots of mixed-content errors: the CheerIT website (https) was calling the API over http, which browsers block. Fix: https addresses in the website's `.env` and `.env.production`, `npm run build`, `pm2 restart cheerit-web`, then check the Network tab (all 200s).
+You asked for the backend log commands (`pm2 logs <name> --lines N`, `pm2 flush`, nginx logs in `/var/log/nginx/`).
+
+## 56. Score dev backend crash (open)
+
+`pm2 logs scoreit-backend` showed `server.ts:558:0: ERROR: Unexpected "<<"`: unresolved git merge-conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) left in `backend/server.ts` on the dev server (branch `kartikui`, status `MM backend/server.ts`).
+The error stayed after `pm2 flush` and restart, so the file itself is broken and Score dev is down. Next: list the markers with `grep -n '^<<<<<<<\|^=======$\|^>>>>>>>' backend/server.ts`, read `sed -n 540,600p`, check other files (`git diff --name-only --diff-filter=U`), keep both sides where they are separate edits, remove the markers with `nano`, `pm2 restart scoreit-backend`.
+Do not run `git stash`, `reset` or `checkout` there: the hand edits would be lost.
+
 ---
 
 ## Where things stand
