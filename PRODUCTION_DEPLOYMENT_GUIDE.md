@@ -7,7 +7,7 @@
 - **You should see** (how to know it worked)
 - **If not** (what to do)
 
-> Tip: in VS Code press `Cmd+Shift+V` (Mac) or `Ctrl+Shift+V` to open this file as a readable page.
+> Tip: this guide is also available as a web page with a Copy button on every command, and as a PDF (`PRODUCTION_DEPLOYMENT_GUIDE.pdf`). In VS Code press `Cmd+Shift+V` (Mac) or `Ctrl+Shift+V` to read this file as a formatted page.
 
 **Nothing secret is written in this file.** You will type passwords and keys yourself. Never paste them into chat, tickets or Git.
 
@@ -69,7 +69,7 @@ Check the server has: Node 22 or newer (`node -v`), `pm2`, `git`, `psql`.
 
 Tick each one.
 
-- [ ] **ScoreIT login fix.** Today any code logs in to ScoreIT as any phone number. The fix is in branch `feat/cheerit-cheer`. You verify it in Part 3, step 3.4. This is the most urgent item.
+- [ ] **ScoreIT login fix.** Today any code logs in to ScoreIT as any phone number. The fix is in branch `feat/cheerit-cheer`. You verify it in Part 3, step 3.3. This is the most urgent item.
 - [ ] **Committed `.env` files.** Several repositories contain a `.env` in Git, including CheerIT's (commit "env publish", with real production secrets). Treat everything in those files as leaked: **change the secrets**, then stop tracking the file with `git rm --cached .env` and add `.env` to `.gitignore`.
   - **Careful:** a server that pulls that change can lose its own `.env`. On each server first run `git update-index --skip-worktree .env`, or copy the file aside and put it back after the pull.
 - [ ] **CheerIT has open routes.** Anyone on the internet can create events, teams and venues in CheerIT. Ask CheerIT's team to add a login check.
