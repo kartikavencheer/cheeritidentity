@@ -70,7 +70,7 @@ body = body
   .replace(/<p><strong>(Where:)<\/strong>/g, '<p class="note where"><strong>$1</strong>');
 
 // page-only wording: no editor tip, "page" instead of "file"
-body = body.replace(/<blockquote>\s*<p>Tip: in VS Code[\s\S]*?<\/blockquote>\n?/, "");
+body = body.replace(/<blockquote>\s*<p>Tip:[\s\S]*?<\/blockquote>\n?/, "");
 body = body.replace("Follow this file from top to bottom", "Follow this page from top to bottom").replace("Nothing secret is written in this file.", "Nothing secret is written on this page.");
 // tick boxes: enabled, with ids, so the page can remember them
 let boxes = 0;
