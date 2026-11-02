@@ -1,5 +1,7 @@
 # ScoreIT ↔ CheerIT: cheering, SSO, events, scores. Production guide
 
+> **For a deployer: start with `PRODUCTION_DEPLOYMENT_GUIDE.md`.** It is the single, up-to-date step-by-step document (identity, every app, the CheerIT API with SSO, the cheering feature, checks, rollback). This file is background.
+
 Written 2026-10-31 from the working local setup. **No secret values are in this file or in any file in this repo; settings are named, never
 valued.** Read `HANDOFF.md` first for status; this file is "how to make production the same as what works locally".
 

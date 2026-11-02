@@ -1,5 +1,7 @@
 # CheerIT identity: production commands
 
+> **For a deployer: start with `PRODUCTION_DEPLOYMENT_GUIDE.md`.** It is the single, up-to-date step-by-step document (identity, every app, the CheerIT API with SSO, the cheering feature, checks, rollback). This file is background.
+
 ## Before you start
 
 Replace every `<placeholder>` with a real value. Run everything on the backend server unless stated.

@@ -1,5 +1,7 @@
 # CheerIT identity: production runbook
 
+> **For a deployer: start with `PRODUCTION_DEPLOYMENT_GUIDE.md`.** It is the single, up-to-date step-by-step document (identity, every app, the CheerIT API with SSO, the cheering feature, checks, rollback). This file is background.
+
 For the engineer deploying this to production. Every command below was run on the dev server and worked as
 shown. Production differs only in where things live (separate frontend, backend and database servers) and in
 how careful you are. Follow the phases in order and do not skip the checks.

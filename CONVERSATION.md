@@ -548,6 +548,14 @@ line endings rewritten in two COM files (restored, diff is now small).
 New `CHEERIT_PRODUCTION_GUIDE.md` (decisions, every setting, order of work, the note for CheerIT's team, security checklist, checks, rollback, problems, local setup, what is unverified), rewritten `HANDOFF.md`, this record,
 updated `PRODUCTION_RUNBOOK.md` (Phase 9) and `PRODUCTION_COMMANDS.md` (step 10), and the tests and helpers saved in `dev-tools/cheerit-integration/`.
 
+## 54. Hosting on the dev server, and the one master document
+
+You hosted the CheerIT API on the dev server at `https://devcheerback.avenengage.com` with my step lists: DNS checked; Redis installed (CheerIT waits for it at start); the project turned out to be at the repository root on `globaldb`
+(not in `CheerITWebAPIV4`); the committed `.env` held your Mac's local settings, so the database, addresses, JWT secrets and the identity key were replaced on the server; a new database `cheeritback` on the server's own Postgres with the tables from
+`prisma db push` and the reference rows loaded; pm2 `cheeritwebapi-dev` on port 3002; nginx file `devcheerback.avenengage.com.conf` (an early 404 was just the first request before nginx picked the file up) and a Certbot certificate; the SSO check answered
+401; `com` was added to the identity sync (0 users yet, every other app still PASS). Score dev (`devscoreit.avenengage.com`, backend port 3001, website in `/var/www/scoreit`) has uncommitted hand edits, so the cheer branch is to be brought in only after a backup and a look at `git status`.
+You then asked for one document a production deployer can follow alone: **`PRODUCTION_DEPLOYMENT_GUIDE.md`** (worksheet of values, security items, identity and data sync, every app, the CheerIT API both ways, the cheer feature, acceptance checks, rollback, troubleshooting, settings by file).
+
 ---
 
 ## Where things stand

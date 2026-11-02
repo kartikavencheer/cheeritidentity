@@ -1,5 +1,7 @@
 # CheerIT identity and cheering: handoff notes
 
+> **For a deployer: start with `PRODUCTION_DEPLOYMENT_GUIDE.md`.** It is the single, up-to-date step-by-step document (identity, every app, the CheerIT API with SSO, the cheering feature, checks, rollback). This file is background.
+
 Last updated 2026-10-31 (Mac). Read this first. For production: `CHEERIT_PRODUCTION_GUIDE.md` (the cheer feature, SSO, events, scores,
 every setting) and `PRODUCTION_RUNBOOK.md` (identity service and the four apps). The whole story: `CONVERSATION.md`.
 **No secret values are in any of these files.** Refer to secrets by name.
