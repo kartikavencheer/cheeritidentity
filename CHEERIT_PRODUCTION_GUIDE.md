@@ -195,7 +195,8 @@ Database check on CheerIT (read-only): `select event_name, access_type from "Eve
 |---|---|---|
 | OTP request 500 "SMS settings not configured" (local) | empty database has no `SMSSetting` row | insert a row; production already has one |
 | OTP accepted by the provider but no SMS | the `LOGIN_OTP` template text must match the registered text (Score's code holds it: "Your OTP is … Do not share it with anyone. AvenCheer") | use the registered wording |
-| Card showed only photo buttons | event created without `allow_video_with_audio` | fixed in creation (`ae336098`); for old events set it true |
+| Card showed only photo buttons | CheerIT's **create** route reads `allow_video_audio` (its update route reads `allow_video_with_audio`); sending the wrong name saves the event with video off | fixed in Score `03e0dc53` and checked on CheerIT's own code; for old events: `update "Event" set allow_video_with_audio = true where …` |
+| A match gets a second event after hours | events are open for `CHEERIT_EVENT_HOURS` (default 12); a match still live after that gets a new event (the old one has left the live list) | keep it longer than a match |
 | 5 live matches became 2 events | events were per pair of teams | now per match (`867ef9ae`) |
 | Logos broken in COM (local) | COM upgrades `http://` to `https://`; local CheerIT has no https | local: empty `BASE_URL`; production is https already |
 | `POST /api/auth/cheerit-sso` 502 | identity service not running, or `IDENTITY_*` missing | start it; card falls back to OTP anyway |

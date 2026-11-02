@@ -46,7 +46,7 @@ const [x, y]: any[] = await Promise.all([createCheeritEvent({ ...base, matchId: 
 assert(x.created && y.created && x.eventId === y.eventId); assert.equal(db.events.length, 1);
 const e = db.events[0];
 assert.equal(e.event_name, "Mumbai Lions vs Pune Tigers (ScoreIT #4)"); assert.equal(e.access_type, "PRIVATE"); assert.equal(e.eventstatus_id, 3); assert.equal(e.eventtype_id, 1);
-assert.equal(e.allow_video_with_audio, true, "video cheers must be on"); assert.equal(e.team_ids.length, 2); assert.equal(e.allow_video_duration_sec, 7); assert(e.end_time > e.start_time); assert.equal(e.group_ids.length, 1); assert.deepEqual(db.groups.map((g) => g.group_name), ["ScoreIT"]);
+assert.equal(e.allow_video_audio, true, "video cheers must be on (CheerIT's create route reads allow_video_audio)"); assert.equal(e.allow_video_with_audio, undefined); assert.equal(e.team_ids.length, 2); assert.equal(e.allow_video_duration_sec, 7); assert(e.end_time > e.start_time); assert.equal(e.group_ids.length, 1); assert.deepEqual(db.groups.map((g) => g.group_name), ["ScoreIT"]);
 assert.deepEqual(db.venues.map((v) => v.venue_name), ["ScoreIT"]); assert.deepEqual(db.comps.map((c) => c.name), ["ScoreIT"]);
 assert.deepEqual(db.teams.map((t) => t.short_name).sort(), ["MLI", "PT"]);
 // public list hides it, access_scope=all (what Score now asks) shows it
