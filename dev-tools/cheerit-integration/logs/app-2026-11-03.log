@@ -1,0 +1,7 @@
+2026-11-03 12:07:34 INFO: Winston logger initialized {"logDir":"/Volumes/MACDISK/kartik/WEBSITES/cheerit-identity/dev-tools/cheerit-integration/logs"}
+2026-11-03 12:07:34 ERROR: SMS sending failed Your OTP is 419269. Do not share it with anyone. AvenCheer {"mobile":"+919000000771","errorMessage":"connect ECONNREFUSED 127.0.0.1:9","axiosCode":"ECONNREFUSED"}
+2026-11-03 12:07:34 ERROR: SMS sending failed Your OTP is 659869. Do not share it with anyone. AvenCheer {"mobile":"+919000000771","errorMessage":"connect ECONNREFUSED 127.0.0.1:9","axiosCode":"ECONNREFUSED"}
+2026-11-03 12:21:37 INFO: Winston logger initialized {"logDir":"/Volumes/MACDISK/kartik/WEBSITES/cheerit-identity/dev-tools/cheerit-integration/logs"}
+2026-11-03 12:21:37 ERROR: SMS sending failed Your OTP is 090956. Do not share it with anyone. AvenCheer {"mobile":"9000000771","errorMessage":"connect ECONNREFUSED 127.0.0.1:9","axiosCode":"ECONNREFUSED"}
+2026-11-03 12:21:37 ERROR: SMS sending failed Your OTP is 525061. Do not share it with anyone. AvenCheer {"mobile":"9000000771","errorMessage":"connect ECONNREFUSED 127.0.0.1:9","axiosCode":"ECONNREFUSED"}
+2026-11-03 12:21:37 ERROR: SMS sending failed Your OTP is 880052. Do not share it with anyone. AvenCheer {"mobile":"9000000771","errorMessage":"connect ECONNREFUSED 127.0.0.1:9","axiosCode":"ECONNREFUSED"}

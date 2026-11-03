@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/Volumes/MACDISK/kartik/WEBSITES/cheerit-identity/dev-tools/cheerit-integration/logs/.caacfa3b35f543454640c6e27f0c7a648fa87c34-audit.json",
+    "files": [
+        {
+            "date": 1793687854538,
+            "name": "/Volumes/MACDISK/kartik/WEBSITES/cheerit-identity/dev-tools/cheerit-integration/logs/app-2026-11-03.log",
+            "hash": "e2b6d6d5a5f7e0a81b1020bf33ea876cc1da384b1e7a5b9f1166cb2bc3b05729"
+        }
+    ],
+    "hashType": "sha256"
+}
